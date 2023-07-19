@@ -1,19 +1,15 @@
-from datetime import datetime, timedelta
 import logging
-from typing import Dict, Any
-
-import requests
+from datetime import datetime, timedelta
+from typing import Optional
 
 import boto3
-from botocore.errorfactory import ClientError
-
+import requests
 from airflow import DAG
-from airflow.operators.empty import EmptyOperator
-from airflow.operators.python import PythonOperator
-from airflow.providers.snowflake.operators.snowflake import SnowflakeOperator
-from airflow.exceptions import AirflowSkipException
-
 from airflow.decorators import task
+from airflow.exceptions import AirflowSkipException
+from airflow.operators.empty import EmptyOperator
+from airflow.providers.snowflake.operators.snowflake import SnowflakeOperator
+from botocore.errorfactory import ClientError
 
 logging.basicConfig(level=logging.INFO)
 
@@ -33,20 +29,33 @@ api_headers = {
 s3 = boto3.client('s3')
 
 
-def s3_object_exists(bucket, key):
-    exists = True
+def s3_object_exists(bucket: str, key: str, s3: Optional[boto3.client] = None) -> bool:
+    """
+    Check if an object exists in an S3 bucket.
 
+    Args:
+        bucket: The name of the S3 bucket.
+        key: The key of the object in the S3 bucket.
+        s3: An optional pre-initialized boto3 S3 client.
+
+    Returns:
+        True if the object exists, False otherwise.
+    """
+    if s3 is None:
+        s3 = boto3.client('s3')
+    
     try:
-        s3.get_object(
+        s3.head_object(
             Bucket=bucket,
             Key=key
         )
     except ClientError as e:
-        if e.response['Error']['Code'] == 'NoSuchKey':
-            exists = False
+        if e.response['Error']['Code'] == '404':
+            return False
         else:
             raise e
-    return exists
+        
+    return True
 
 
 with DAG(
@@ -79,6 +88,7 @@ with DAG(
         run_hr = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S.%f%z").strftime('%Y%m%d%H00')
         return run_hr
 
+
     run_hr_task = push_run_hr_to_xcom()
 
     write_to_snowflake_task = SnowflakeOperator(
@@ -87,13 +97,12 @@ with DAG(
         sql='sql/write_weather.sql',
         params={'bucket': bucket,
                 'prefix': prefix
-                }
+                },
+        trigger_rule='none_failed'
     )
 
     for city in cities:
         city = city.lower().replace(' ', '_')
-
-
 
 
         @task(task_id=f"fetch_conditions_for__{city}")
