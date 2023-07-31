@@ -11,6 +11,8 @@ from airflow.operators.empty import EmptyOperator
 from airflow.providers.snowflake.operators.snowflake import SnowflakeOperator
 from botocore.errorfactory import ClientError
 
+from datahub_provider.entities import Dataset
+
 logging.basicConfig(level=logging.INFO)
 
 bucket = "sandbox-data-pipeline"
@@ -82,7 +84,10 @@ with DAG(
     finish_task = EmptyOperator(task_id="finish")
 
 
-    @task(task_id='get_run_hr')
+    @task(task_id='get_run_hr',
+          inlets=[Dataset("airflow", "run_hr")],
+          outlets=[Dataset("xcom", "run_hr")]
+          )
     def push_run_hr_to_xcom(*args, **kwargs):
         ts = kwargs['ts']
         run_hr = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S.%f%z").strftime('%Y%m%d%H00')
@@ -98,14 +103,19 @@ with DAG(
         params={'bucket': bucket,
                 'prefix': prefix
                 },
-        trigger_rule='none_failed'
+        trigger_rule='none_failed',
+        inlets=[Dataset("s3", "weather bucket json")],
+        outlets=[Dataset("snowflake", "weather table")]
     )
 
     for city in cities:
         city = city.lower().replace(' ', '_')
 
 
-        @task(task_id=f"fetch_conditions_for__{city}")
+        @task(task_id=f"fetch_conditions_for__{city}",
+              inlets=[Dataset("xcom", "run_hr")],
+              outlets=[Dataset("s3", "weather bucket json")]
+              )
         def fetch_conditions(_city, **kwargs):
             ts = kwargs['ts']
             run_hr = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S.%f%z").strftime('%Y%m%d%H00')
@@ -129,5 +139,3 @@ with DAG(
 
         fetch_task = fetch_conditions(city)
         start_task >> run_hr_task >> fetch_task >> write_to_snowflake_task >> finish_task
-
-    # write_to_snowflake_task >> finish_task
