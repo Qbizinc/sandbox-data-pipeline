@@ -17,7 +17,16 @@ bucket = "sandbox-data-pipeline"
 prefix = "snowflake"
 run_hr = 0
 
-api_gateway_url = "https://w51pflsz4l.execute-api.us-west-2.amazonaws.com/test"
+cities = [
+    "San Francisco",
+    "Los Angeles",
+    "New York",
+    "Chicago",
+    "London",
+    "Paris",
+    "Tokyo",
+]
+
 api_url = "https://weatherapi-com.p.rapidapi.com/current.json"
 
 api_headers = {
@@ -54,42 +63,8 @@ def s3_object_exists(bucket: str, key: str, s3: Optional[boto3.client] = None) -
     return True
 
 
-@task
-def get_run_hr(**kwargs):
-    ts = kwargs["ts"]
-    run_hr = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S.%f%z").strftime("%Y%m%d%H00")
-    return run_hr
-
-
-@task
-def get_top_5_cities():
-    cities = requests.get(
-        "https://w51pflsz4l.execute-api.us-west-2.amazonaws.com/test"
-    ).json()
-    return cities
-
-
-@task
-def fetch_weather(city: str, **kwargs):
-    ti = kwargs["ti"]
-    run_hr = ti.xcom_pull(task_ids="get_run_hr")
-    api_querystring = {"q": city}
-
-    response = requests.get(api_url, headers=api_headers, params=api_querystring)
-
-    city = city.lower().replace(" ", "_")
-    s3_key = f"{prefix}/weather/{run_hr}/{city}.json"
-
-    if not s3_object_exists(bucket, s3_key):
-        s3.put_object(Body=str(response.json()), Bucket=bucket, Key=s3_key)
-        logging.info(f"{s3_key} written to s3://{bucket}")
-    else:
-        logging.info(f"{s3_key} already exists in s3://{bucket}. Skipping write")
-        raise AirflowSkipException
-
-
 with DAG(
-    dag_id="sandbox_data_pipeline__get_weather",
+    dag_id="sandbox_data_pipeline__get_weather_static_cities",
     # [START default_args]
     # These args will get passed on to each operator
     # You can override them on a per-task basis during operator initialization
@@ -108,11 +83,16 @@ with DAG(
     catchup=False,
     tags=["sandbox"],
 ) as dag:
+    start_task = EmptyOperator(task_id="start")
+    finish_task = EmptyOperator(task_id="finish")
 
-    get_top_5_cities_task = get_top_5_cities()
-    fetch_weather_task = fetch_weather.expand(city=get_top_5_cities_task)
+    @task(task_id="get_run_hr")
+    def push_run_hr_to_xcom(*args, **kwargs):
+        ts = kwargs["ts"]
+        run_hr = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S.%f%z").strftime("%Y%m%d%H00")
+        return run_hr
 
-    get_run_hr_task = get_run_hr()
+    run_hr_task = push_run_hr_to_xcom()
 
     write_to_snowflake_task = SnowflakeOperator(
         task_id=f"write_conditions",
@@ -122,14 +102,36 @@ with DAG(
         trigger_rule="none_failed",
     )
 
-    start_task = EmptyOperator(task_id="start")
-    finish_task = EmptyOperator(task_id="finish")
+    for city in cities:
+        city = city.lower().replace(" ", "_")
 
-    (
-        start_task >> [get_top_5_cities_task, get_run_hr_task]
-        >> fetch_weather_task
-        >> write_to_snowflake_task
-        >> finish_task
-    )
+        @task(task_id=f"fetch_conditions_for__{city}")
+        def fetch_conditions(_city, **kwargs):
+            ti = kwargs["ti"]
+            run_hr = ti.xcom_pull(task_ids="get_run_hr")
+            api_querystring = {"q": _city}
 
+            response = requests.get(
+                api_url, headers=api_headers, params=api_querystring
+            )
 
+            s3_key = f"{prefix}/weather/{run_hr}/{_city}.json"
+
+            if not s3_object_exists(bucket, s3_key):
+                s3.put_object(Body=str(response.json()), Bucket=bucket, Key=s3_key)
+                logging.info(f"{s3_key} written to s3://{bucket}")
+            else:
+                logging.info(
+                    f"{s3_key} already exists in s3://{bucket}. Skipping write"
+                )
+                raise AirflowSkipException
+
+        # for city in cities:
+        fetch_task = fetch_conditions(city)
+        (
+            start_task
+            >> run_hr_task
+            >> fetch_task
+            >> write_to_snowflake_task
+            >> finish_task
+        )
