@@ -5,11 +5,16 @@ from typing import Optional
 import boto3
 import requests
 from airflow import DAG
-from airflow.decorators import task
+from airflow.decorators import dag, task
 from airflow.exceptions import AirflowSkipException
 from airflow.operators.empty import EmptyOperator
-from airflow.providers.snowflake.operators.snowflake import SnowflakeOperator
+from airflow.providers.common.sql.operators.sql import SQLExecuteQueryOperator
+from airflow.models import Variable
+
 from botocore.errorfactory import ClientError
+
+import str2bool
+
 
 logging.basicConfig(level=logging.INFO)
 
@@ -26,6 +31,20 @@ api_headers = {
 }
 
 s3 = boto3.client("s3")
+
+
+class SQLExecuteQueryOptionalOperator(SQLExecuteQueryOperator):
+    def __init__(self, skip=False, **kwargs):
+        super().__init__(**kwargs)
+        self.skip = skip
+
+    def execute(self, context):
+        logging.info("SKIP=====>" + str(self.skip))
+        if self.skip:
+            logging.info("received skip=True arg, skipping task")
+            raise AirflowSkipException
+        else:
+            super().execute(context)
 
 
 def s3_object_exists(bucket: str, key: str, s3: Optional[boto3.client] = None) -> bool:
@@ -56,6 +75,8 @@ def s3_object_exists(bucket: str, key: str, s3: Optional[boto3.client] = None) -
 
 @task
 def get_run_hr(**kwargs):
+    """get run hour from ts. Used in downstream tasks to enforce idempotency"""
+
     ts = kwargs["ts"]
     run_hr = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S.%f%z").strftime("%Y%m%d%H00")
     return run_hr
@@ -71,6 +92,9 @@ def get_top_5_cities():
 
 @task
 def fetch_weather(city: str, **kwargs):
+    """fetch weather data from weatherapi.com and write to s3
+    Args: city: city name to fetch weather data for"""
+
     ti = kwargs["ti"]
     run_hr = ti.xcom_pull(task_ids="get_run_hr")
     api_querystring = {"q": city}
@@ -88,11 +112,7 @@ def fetch_weather(city: str, **kwargs):
         raise AirflowSkipException
 
 
-with DAG(
-    dag_id="sandbox_data_pipeline__get_weather",
-    # [START default_args]
-    # These args will get passed on to each operator
-    # You can override them on a per-task basis during operator initialization
+@dag(
     default_args={
         "depends_on_past": False,
         "email": ["airflow@example.com"],
@@ -101,35 +121,41 @@ with DAG(
         "retries": 1,
         "retry_delay": timedelta(minutes=5),
     },
-    # [END default_args]
     description="Get current weather conditions from weatherAPI.com (via RapidAPI) and send to Snowflake",
     schedule=timedelta(hours=1),
     start_date=datetime(2023, 7, 13, 17),
     catchup=False,
     tags=["sandbox"],
-) as dag:
+)
+def sandbox_data_pipeline__get_weather():
 
     get_top_5_cities_task = get_top_5_cities()
     fetch_weather_task = fetch_weather.expand(city=get_top_5_cities_task)
 
     get_run_hr_task = get_run_hr()
+    skip_snowflake_write = str2bool.str2bool(
+        Variable.get("sandbox_data_pipeline__skip_snowflake_write", default_var="False")
+    )
 
-    write_to_snowflake_task = SnowflakeOperator(
-        task_id=f"write_conditions",
-        snowflake_conn_id="snowflake_admin",
+    write_to_snowflake_task = SQLExecuteQueryOptionalOperator(
+        task_id=f"write_conditions_to_snowflake",
+        conn_id="snowflake_admin",
         sql="sql/write_weather.sql",
         params={"bucket": bucket, "prefix": prefix},
         trigger_rule="none_failed",
+        skip=skip_snowflake_write,
     )
 
     start_task = EmptyOperator(task_id="start")
     finish_task = EmptyOperator(task_id="finish")
 
     (
-        start_task >> [get_top_5_cities_task, get_run_hr_task]
+        start_task
+        >> [get_top_5_cities_task, get_run_hr_task]
         >> fetch_weather_task
         >> write_to_snowflake_task
         >> finish_task
     )
 
 
+sandbox_data_pipeline__get_weather()
