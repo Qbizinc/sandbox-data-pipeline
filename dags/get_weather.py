@@ -4,17 +4,13 @@ from typing import Optional
 
 import boto3
 import requests
-from airflow import DAG
+import str2bool
 from airflow.decorators import dag, task
 from airflow.exceptions import AirflowSkipException
+from airflow.models import Variable
 from airflow.operators.empty import EmptyOperator
 from airflow.providers.common.sql.operators.sql import SQLExecuteQueryOperator
-from airflow.models import Variable
-
 from botocore.errorfactory import ClientError
-
-import str2bool
-
 
 logging.basicConfig(level=logging.INFO)
 
@@ -84,9 +80,7 @@ def get_run_hr(**kwargs):
 
 @task
 def get_top_5_cities():
-    cities = requests.get(
-        "https://w51pflsz4l.execute-api.us-west-2.amazonaws.com/test"
-    ).json()
+    cities = requests.get(api_gateway_url).json()
     return cities
 
 
