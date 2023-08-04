@@ -16,15 +16,7 @@ logging.basicConfig(level=logging.INFO)
 
 bucket = "sandbox-data-pipeline"
 prefix = "snowflake"
-run_hr = 0
-
-api_gateway_url = "https://w51pflsz4l.execute-api.us-west-2.amazonaws.com/test"
-api_url = "https://weatherapi-com.p.rapidapi.com/current.json"
-
-api_headers = {
-    "X-RapidAPI-Key": "7ac551d32emsh7d8a58ece3dba3dp1f6799jsn6c356eacccc5",
-    "X-RapidAPI-Host": "weatherapi-com.p.rapidapi.com",
-}
+region = "us-west-2"
 
 s3 = boto3.client("s3")
 
@@ -35,7 +27,6 @@ class SQLExecuteQueryOptionalOperator(SQLExecuteQueryOperator):
         self.skip = skip
 
     def execute(self, context):
-        logging.info("SKIP=====>" + str(self.skip))
         if self.skip:
             logging.info("received skip=True arg, skipping task")
             raise AirflowSkipException
@@ -69,6 +60,24 @@ def s3_object_exists(bucket: str, key: str, s3: Optional[boto3.client] = None) -
     return True
 
 
+def get_aws_parameter(parameter_name: str, ssm: Optional[boto3.client] = None) -> str:
+    """
+    Get a parameter from AWS Systems Manager Parameter Store.
+
+    Args:
+        parameter_name: The name of the parameter to retrieve.
+        ssm: An optional pre-initialized boto3 SSM client.
+
+    Returns:
+        The value of the parameter.
+    """
+    if ssm is None:
+        ssm = boto3.client("ssm", region_name=region)
+
+    response = ssm.get_parameter(Name=parameter_name)
+    return response["Parameter"]["Value"]
+
+
 @task
 def get_run_hr(**kwargs):
     """get run hour from ts. Used in downstream tasks to enforce idempotency"""
@@ -80,6 +89,9 @@ def get_run_hr(**kwargs):
 
 @task
 def get_top_5_cities():
+    api_gateway_url = get_aws_parameter(
+        "sandbox_data_pipeline__weather_api_gateway_url"
+    )
     cities = requests.get(api_gateway_url).json()
     return cities
 
@@ -89,21 +101,32 @@ def fetch_weather(city: str, **kwargs):
     """fetch weather data from weatherapi.com and write to s3
     Args: city: city name to fetch weather data for"""
 
+    rapid_api_url = get_aws_parameter("sandbox_data_pipeline__weather_rapid_api_url")
+    rapid_api_key = get_aws_parameter("sandbox_data_pipeline__weather_rapid_api_key")
+    rapid_api_host = get_aws_parameter("sandbox_data_pipeline__weather_rapid_api_host")
+
+    api_headers = {
+        "X-RapidAPI-Key": rapid_api_key,
+        "X-RapidAPI-Host": rapid_api_host,
+    }
+
     ti = kwargs["ti"]
     run_hr = ti.xcom_pull(task_ids="get_run_hr")
+
+    s3_key = f"{prefix}/weather/{run_hr}/{city}.json"
+
+    if s3_object_exists(bucket, s3_key):
+        raise AirflowSkipException
+
     api_querystring = {"q": city}
 
-    response = requests.get(api_url, headers=api_headers, params=api_querystring)
+    response = requests.get(rapid_api_url, headers=api_headers, params=api_querystring)
 
     city = city.lower().replace(" ", "_")
     s3_key = f"{prefix}/weather/{run_hr}/{city}.json"
 
-    if not s3_object_exists(bucket, s3_key):
-        s3.put_object(Body=str(response.json()), Bucket=bucket, Key=s3_key)
-        logging.info(f"{s3_key} written to s3://{bucket}")
-    else:
-        logging.info(f"{s3_key} already exists in s3://{bucket}. Skipping write")
-        raise AirflowSkipException
+    s3.put_object(Body=str(response.json()), Bucket=bucket, Key=s3_key)
+    logging.info(f"{s3_key} written to s3://{bucket}")
 
 
 @dag(
