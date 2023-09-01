@@ -74,7 +74,7 @@ with DAG(
 ) as dag:
     # [END instantiate_dag]
 
-    # t1, t2 and t3 are examples of tasks created by instantiating operators
+    # t1, t2 and t3 are examples of tasks created by instantiating utils
     # [START basic_task]
     t1 = BashOperator(
         task_id="print_date",

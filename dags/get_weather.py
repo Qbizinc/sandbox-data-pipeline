@@ -9,29 +9,21 @@ from airflow.decorators import dag, task
 from airflow.exceptions import AirflowSkipException
 from airflow.models import Variable
 from airflow.operators.empty import EmptyOperator
-from airflow.providers.common.sql.operators.sql import SQLExecuteQueryOperator
 from botocore.errorfactory import ClientError
+
+from airflow.providers.google.cloud.operators.bigquery import BigQueryInsertJobOperator
+
+from utils.operators import SQLExecuteQueryOptionalOperator, GCSObjectListExistenceSensor
 
 logging.basicConfig(level=logging.INFO)
 
 bucket = "sandbox-data-pipeline"
+gcs_bucket = "qbiz-sandbox-data-pipeline"
 prefix = "snowflake"
+gcs_prefix = "s3-transfer/snowflake/weather"
 region = "us-west-2"
 
 s3 = boto3.client("s3")
-
-
-class SQLExecuteQueryOptionalOperator(SQLExecuteQueryOperator):
-    def __init__(self, skip=False, **kwargs):
-        super().__init__(**kwargs)
-        self.skip = skip
-
-    def execute(self, context):
-        if self.skip:
-            logging.info("received skip=True arg, skipping task")
-            raise AirflowSkipException
-        else:
-            super().execute(context)
 
 
 def s3_object_exists(bucket: str, key: str, s3: Optional[boto3.client] = None) -> bool:
@@ -98,34 +90,46 @@ def get_top_5_cities():
 
 @task
 def fetch_weather(city: str, **kwargs):
-    """fetch weather data from weatherapi.com and write to s3
-    Args: city: city name to fetch weather data for"""
+    """
+    Fetch weather data from weatherapi.com and write to S3.
 
+    Args:
+        city (str): City name to fetch weather data for.
+    """
+
+    # Get RapidAPI credentials and URL from AWS parameters
     rapid_api_url = get_aws_parameter("sandbox_data_pipeline__weather_rapid_api_url")
     rapid_api_key = get_aws_parameter("sandbox_data_pipeline__weather_rapid_api_key")
     rapid_api_host = get_aws_parameter("sandbox_data_pipeline__weather_rapid_api_host")
 
+    # Set headers for RapidAPI
     api_headers = {
         "X-RapidAPI-Key": rapid_api_key,
         "X-RapidAPI-Host": rapid_api_host,
     }
 
+    # Retrieve run hour from task instance
     ti = kwargs["ti"]
     run_hr = ti.xcom_pull(task_ids="get_run_hr")
 
-    s3_key = f"{prefix}/weather/{run_hr}/{city}.json"
+    # Define S3 key
+    city_lower = city.lower().replace(" ", "_")
+    s3_key = f"{prefix}/weather/{run_hr}/{city_lower}.json"
 
+    # Check if the data for the city already exists in S3
     if s3_object_exists(bucket, s3_key):
         raise AirflowSkipException
 
+    # Prepare query parameters for the API request
     api_querystring = {"q": city}
 
+    # Fetch weather data from the API
     response = requests.get(rapid_api_url, headers=api_headers, params=api_querystring)
 
-    city = city.lower().replace(" ", "_")
-    s3_key = f"{prefix}/weather/{run_hr}/{city}.json"
-
+    # Store weather data in S3
     s3.put_object(Body=str(response.json()), Bucket=bucket, Key=s3_key)
+
+    # Log successful write to S3
     logging.info(f"{s3_key} written to s3://{bucket}")
 
 
@@ -145,13 +149,36 @@ def fetch_weather(city: str, **kwargs):
     tags=["sandbox"],
 )
 def sandbox_data_pipeline__get_weather():
-
     get_top_5_cities_task = get_top_5_cities()
     fetch_weather_task = fetch_weather.expand(city=get_top_5_cities_task)
 
     get_run_hr_task = get_run_hr()
+
     skip_snowflake_write = str2bool.str2bool(
         Variable.get("sandbox_data_pipeline__skip_snowflake_write", default_var="False")
+    )
+
+    wait_for_files_in_gcs_task = GCSObjectListExistenceSensor(
+        google_cloud_conn_id="sandbox-data-pipeline-gcp",
+        task_id="wait_for_files_in_gcs",
+        bucket=gcs_bucket,
+        prefix=gcs_prefix + "/{{ ti.xcom_pull(task_ids='get_run_hr') }}",
+        object_list="{{ ti.xcom_pull(task_ids='get_top_5_cities') }}",
+        timeout=600,
+        trigger_rule="none_failed",
+    )
+
+    write_to_bigquery_task = BigQueryInsertJobOperator(
+        task_id=f"write_conditions_to_bigquery",
+        gcp_conn_id="sandbox-data-pipeline-gcp",
+        params={"bucket": gcs_bucket,
+                "prefix": gcs_prefix},
+        configuration={
+            "query": {
+                "query": "{% include 'sql/write_weather_bigquery.sql' %}",
+                "useLegacySql": False,
+            }
+        }
     )
 
     write_to_snowflake_task = SQLExecuteQueryOptionalOperator(
@@ -164,14 +191,15 @@ def sandbox_data_pipeline__get_weather():
     )
 
     start_task = EmptyOperator(task_id="start")
-    finish_task = EmptyOperator(task_id="finish")
+    finish_task = EmptyOperator(task_id="finish", trigger_rule="none_failed")
 
     (
-        start_task
-        >> [get_top_5_cities_task, get_run_hr_task]
-        >> fetch_weather_task
-        >> write_to_snowflake_task
-        >> finish_task
+            start_task
+            >> [get_top_5_cities_task, get_run_hr_task]
+            >> fetch_weather_task
+            >> wait_for_files_in_gcs_task
+            >> [write_to_snowflake_task, write_to_bigquery_task]
+            >> finish_task
     )
 
 
