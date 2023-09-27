@@ -16,7 +16,7 @@ and [dynamic task mapping](https://docs.astronomer.io/learn/dynamic-tasks).
 
 
 Pipeline Overview:
-![pipeline overview](/Users/jaythomas/qbiz/sandbox-data-pipeline/diagram_images/sandbox_data_pipeline.png)
+![pipeline overview](diagram_images/sandbox_data_pipeline.png)
 
 Airflow DAG:
 ![airflow dag](/Users/jaythomas/qbiz/sandbox-data-pipeline/diagram_images/airflow_dag.png)
