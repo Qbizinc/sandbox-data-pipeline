@@ -18,7 +18,7 @@ gcs_transfer_icon = "/home/airflow/airflow/diagram_images/google-cloud-data-tran
 if __name__ == "__main__":
     with Diagram("", show=False, filename="diagram_images/sandbox_data_pipeline"):
         with Cluster("AWS"):
-            rapidapi = Custom("rapidapi.com", weatherapi_icon)
+
             s3 = S3("S3")
             sqs = SQS("SQS")
             lambda_function = Lambda("Lambda")
@@ -26,8 +26,7 @@ if __name__ == "__main__":
             parameter_store = ParameterStore("Parameter Store")
 
             parameter_store >> api_gateway >> lambda_function
-            lambda_function >> rapidapi
-            rapidapi >> lambda_function
+
             lambda_function >> s3
             s3 >> sqs
 
@@ -41,5 +40,10 @@ if __name__ == "__main__":
         with Cluster("Snowflake (optional)"):
             snowflake = Custom("", snowflake_icon)
             s3 >> Edge(style="dotted") >> snowflake
+
+        with Cluster("RapidAPI"):
+            rapidapi = Custom("rapidapi.com", weatherapi_icon)
+            # lambda_function >> rapidapi
+            rapidapi >> Edge(reverse=True) >> lambda_function
 
         sqs >> gcs_transfer
