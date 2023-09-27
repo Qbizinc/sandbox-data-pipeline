@@ -1,32 +1,45 @@
 from diagrams import Diagram, Cluster, Edge
-from diagrams.aws.compute import EC2
+from diagrams.aws.compute import Lambda
+from diagrams.aws.integration import SQS
+from diagrams.aws.management import ParameterStore
+from diagrams.aws.network import APIGateway
 from diagrams.aws.storage import S3
 from diagrams.custom import Custom
+from diagrams.gcp.analytics import BigQuery
+from diagrams.gcp.storage import GCS
 
 # Custom shape for Snowflake
 snowflake_icon = "/home/airflow/airflow/diagram_images/snowflake.png"
 rapidapi_icon = "/home/airflow/airflow/diagram_images/rapidapi.png"
 airflow_icon = "/home/airflow/airflow/diagram_images/airflow.png"
 weatherapi_icon = "/home/airflow/airflow/diagram_images/weatherapi.png"
+gcs_transfer_icon = "/home/airflow/airflow/diagram_images/google-cloud-data-transfer.png"
 
 if __name__ == "__main__":
-
-    with Diagram("Data Workflow", show=False, filename="diagram_images/sandbox_data_pipeline"):
+    with Diagram("", show=False, filename="diagram_images/sandbox_data_pipeline"):
         with Cluster("AWS"):
-            airflow = Custom("Airflow (EC2)", airflow_icon)
+            rapidapi = Custom("rapidapi.com", weatherapi_icon)
             s3 = S3("S3")
-        with Cluster("Snowflake"):
-            stage_table = Custom("stage table", snowflake_icon)
-            weather_table = Custom("weather table", snowflake_icon)
+            sqs = SQS("SQS")
+            lambda_function = Lambda("Lambda")
+            api_gateway = APIGateway("API Gateway")
+            parameter_store = ParameterStore("Parameter Store")
 
-        with Cluster("RapidAPI"):
-            rapidapi = Custom("WeatherAPI.com", weatherapi_icon)
+            parameter_store >> api_gateway >> lambda_function
+            lambda_function >> rapidapi
+            rapidapi >> lambda_function
+            lambda_function >> s3
+            s3 >> sqs
 
-        rapidapi >>Edge(style="dotted", label="airflow") >> s3 >> Edge(style="dotted", label="airflow") \
-        >> stage_table >> Edge(style="dotted", label="airflow") >> weather_table
-        # airflow >> Edge(style="dotted", label="airflow") >> rapidapi
-        # airflow >> rapidapi
-        # rapidapi >> s3
-        # airflow >> s3
-        # airflow >> snowflake
-        # s3 >> snowflake
+        with Cluster("GCP"):
+            bigquery = BigQuery("BigQuery")
+            gcs_transfer = Custom("GCS Transfer", gcs_transfer_icon)
+            gcs = GCS("GCS")
+
+            gcs_transfer >> gcs >> bigquery
+
+        with Cluster("Snowflake (optional)"):
+            snowflake = Custom("", snowflake_icon)
+            s3 >> Edge(style="dotted") >> snowflake
+
+        sqs >> gcs_transfer
