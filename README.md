@@ -19,7 +19,7 @@ Pipeline Overview:
 ![pipeline overview](diagram_images/sandbox_data_pipeline.png)
 
 Airflow DAG:
-![airflow dag](/Users/jaythomas/qbiz/sandbox-data-pipeline/diagram_images/airflow_dag.png)
+![airflow dag](diagram_images/airflow_dag.png)
 ---
 
 Services utilized include:
