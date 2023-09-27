@@ -20,6 +20,7 @@ Pipeline Overview:
 
 Airflow DAG:
 ![Airflow DAG](diagram_images/airflow_dag.png)
+
 ---
 
 Services utilized include:
