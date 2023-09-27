@@ -15,11 +15,14 @@ the [taskflow paradigm](https://docs.astronomer.io/learn/airflow-decorators),
 and [dynamic task mapping](https://docs.astronomer.io/learn/dynamic-tasks).
 
 
+
 Pipeline Overview:
 ![pipeline overview](/diagram_images/sandbox_data_pipeline.png)
 
 Airflow DAG:
-![airflow dag](/Users/jaythomas/qbiz/sandbox-data-pipeline/diagram_images/airflow_dag.png)
+![airflow DAG](diagram_images/airflow_dag.png)
+
+
 ---
 
 Services utilized include:
