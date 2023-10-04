@@ -28,17 +28,17 @@ Airflow DAG:
 Services utilized include:
 
 - AWS
-- - EC2
-- - Parameter Store
-- - S3
-- - SQS
-- - API Gateway
+  - EC2
+  - Parameter Store
+  - S3
+  - SQS
+  - API Gateway
 
 
 - Google Cloud Platform (GCP)
-- - BigQuery
-- - Cloud Storage
-- - GCS Transfer Service
+  - BigQuery
+  - Cloud Storage
+  - GCS Transfer Service
 
 
 - Snowflake
@@ -47,7 +47,37 @@ Services utilized include:
 - RapidAIP:
 - - weatherapi.com
 
+---
 
+## Steps
+
+1. **start**: empty task
+2. **get_top_5_cities**: get top 5 cities from API
+   1. Get API endpoint from AWS Parameter Store
+   2. Make HTTP request to API endpoint
+   3. Return list of 5 cities and pass to xcom (via return)
+3.  **get_run_hr** (parallel with 2): get run hour from DAG run timestamp and pass to xcom
+4. **fetch_weather**: fetch weather data for each city
+   1. Get city list and run_hr from xcom
+   2. Using dynamic task mapping, **for each city**, run in parallel:
+      1. Check S3 to see if data for city already exists for run_hr
+      2. If so, skip (raise AirflowSkipException)
+      3. If not, write JSON response to S3
+      4. [**S3 BUCKET TRIGGERED EVENT**]: write JSON filename to SQS queue
+      5. [**GCP TRANSFER SERVICE**]: pull JSON file from S3 and write to GCS bucket
+5. **wait_for_files_in_gcs**:
+   1. get file list from xcom
+   2. wait for all files to appear in GCS bucket (custom Airflow GCS sensor)
+6. **write_to_snowflake**:
+   1. skip if variable `sandbox_data_pipeline__skip_snowflake_write` is set to `True` (custom operator)
+   2. Execute `sql/write_weather.sql` to load data from GCS into Snowflake idempotently
+7. **write_to_bigquery**:
+   1. Execute `sql/write_weather_bigquery.sql` to load data from GCS into BigQuery idempotently
+8. **finish**: empty task
+
+---
+
+## Code summary ##
 This Python code defines an Apache Airflow DAG (Directed Acyclic Graph) for a data pipeline that retrieves current weather conditions from weatherAPI.com (via RapidAPI) and sends this data to both Snowflake and Google BigQuery. Below is a summary of the key components and functionality of the code:
 
 1. **Imports**: The code imports various Python libraries and modules, including logging, AWS SDK (Boto3), requests for making HTTP requests, and Airflow-related modules for task scheduling and management.
@@ -73,8 +103,6 @@ This Python code defines an Apache Airflow DAG (Directed Acyclic Graph) for a da
 6. **Task Dependencies**:
    - The DAG defines task dependencies using `>>` and `[...]` notation, indicating the execution order of tasks.
    - It starts with an empty "start" task and ends with an empty "finish" task.
-   - The task dependencies are as follows:
-     - "start" task >> [get_top_5_cities_task, get_run_hr_task] >> fetch_weather_task >> wait_for_files_in_gcs_task >> [write_to_snowflake_task, write_to_bigquery_task] >> finish_task
 
 7. **Additional Notes**:
    - The DAG includes conditional logic (`skip_snowflake_write`) to optionally skip writing data to Snowflake based on a variable's value.
