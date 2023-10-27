@@ -183,7 +183,7 @@ def sandbox_data_pipeline__get_weather():
 
     write_to_snowflake_task = SQLExecuteQueryOptionalOperator(
         task_id=f"write_conditions_to_snowflake",
-        conn_id="snowflake_admin",
+        conn_id="qbiz_snowflake_admin",
         sql="sql/write_weather.sql",
         params={"bucket": bucket, "prefix": prefix},
         trigger_rule="none_failed",
