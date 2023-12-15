@@ -28,7 +28,7 @@ COPY INTO weather_stage
 FILE_FORMAT = (TYPE = JSON);
 
 
-create or replace table weather
+create table if not exists weather
 (
     run_hr      int,
     location_name string,

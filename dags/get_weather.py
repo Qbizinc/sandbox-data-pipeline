@@ -9,9 +9,8 @@ from airflow.decorators import dag, task
 from airflow.exceptions import AirflowSkipException
 from airflow.models import Variable
 from airflow.operators.empty import EmptyOperator
-from botocore.errorfactory import ClientError
-
 from airflow.providers.google.cloud.operators.bigquery import BigQueryInsertJobOperator
+from botocore.errorfactory import ClientError
 
 from utils.operators import SQLExecuteQueryOptionalOperator, GCSObjectListExistenceSensor
 
@@ -70,6 +69,38 @@ def get_aws_parameter(parameter_name: str, ssm: Optional[boto3.client] = None) -
     return response["Parameter"]["Value"]
 
 
+def fetch_rapid_api_data(url: str, key: str, host: str, s3_bucket: str, s3_key: str, querystring: Optional[dict] = None,
+                         ) -> None:
+    """
+    Make a call to a RapidAPI endpoint.
+    Args:
+        url: The URL of the endpoint.
+        key: The API key.
+        host: The API host.
+        s3_bucket: The S3 bucket to write the response to.
+        s3_key: The S3 key to write the response to.
+        querystring: Optional query parameters.
+    """
+    # Check if the data already exists in S3
+    if s3_object_exists(s3_bucket, s3_key):
+        raise AirflowSkipException
+
+    # Set headers for RapidAPI
+    headers = {
+        "X-RapidAPI-Key": key,
+        "X-RapidAPI-Host": host,
+    }
+
+    # Fetch data from the API
+    response = requests.get(url, headers=headers, params=querystring)
+
+    # Store data in S3
+    s3.put_object(Body=str(response.json()), Bucket=bucket, Key=s3_key)
+
+    # Log successful write to S3
+    logging.info(f"{s3_key} written to s3://{bucket}")
+
+
 @task
 def get_run_hr(**kwargs):
     """get run hour from ts. Used in downstream tasks to enforce idempotency"""
@@ -102,35 +133,40 @@ def fetch_weather(city: str, **kwargs):
     rapid_api_key = get_aws_parameter("sandbox_data_pipeline__weather_rapid_api_key")
     rapid_api_host = get_aws_parameter("sandbox_data_pipeline__weather_rapid_api_host")
 
-    # Set headers for RapidAPI
-    api_headers = {
-        "X-RapidAPI-Key": rapid_api_key,
-        "X-RapidAPI-Host": rapid_api_host,
-    }
+    # Retrieve run hour from task instance
+    ti = kwargs["ti"]
+    run_hr = ti.xcom_pull(task_ids="get_run_hr")
+
+    # Define query parameters
+    city_lower = city.lower().replace(" ", "_")
+    querystring = {"q": city}
+
+    # Define S3 key
+    s3_key = f"{prefix}/weather/{run_hr}/{city_lower}.json"
+
+    fetch_rapid_api_data(url=rapid_api_url, key=rapid_api_key, host=rapid_api_host, s3_bucket=bucket, s3_key=s3_key,
+                         querystring=querystring)
+
+
+@task
+def fetch_cocktails(**kwargs):
+    """
+    Fetch latest cocktails
+    """
+
+    # Get RapidAPI credentials and URL from AWS parameters
+    rapid_api_url = get_aws_parameter("sandbox_data_pipeline__cocktails_rapid_api_url")
+    rapid_api_key = get_aws_parameter("sandbox_data_pipeline__cocktails_rapid_api_key")
+    rapid_api_host = get_aws_parameter("sandbox_data_pipeline__cocktails_rapid_api_host")
 
     # Retrieve run hour from task instance
     ti = kwargs["ti"]
     run_hr = ti.xcom_pull(task_ids="get_run_hr")
 
     # Define S3 key
-    city_lower = city.lower().replace(" ", "_")
-    s3_key = f"{prefix}/weather/{run_hr}/{city_lower}.json"
+    s3_key = f"{prefix}/cocktails/{run_hr}/cocktails.json"
 
-    # Check if the data for the city already exists in S3
-    if s3_object_exists(bucket, s3_key):
-        raise AirflowSkipException
-
-    # Prepare query parameters for the API request
-    api_querystring = {"q": city}
-
-    # Fetch weather data from the API
-    response = requests.get(rapid_api_url, headers=api_headers, params=api_querystring)
-
-    # Store weather data in S3
-    s3.put_object(Body=str(response.json()), Bucket=bucket, Key=s3_key)
-
-    # Log successful write to S3
-    logging.info(f"{s3_key} written to s3://{bucket}")
+    fetch_rapid_api_data(url=rapid_api_url, key=rapid_api_key, host=rapid_api_host, s3_bucket=bucket, s3_key=s3_key)
 
 
 @dag(
@@ -151,6 +187,7 @@ def fetch_weather(city: str, **kwargs):
 def sandbox_data_pipeline__get_weather():
     get_top_5_cities_task = get_top_5_cities()
     fetch_weather_task = fetch_weather.expand(city=get_top_5_cities_task)
+    fetch_cocktails_task = fetch_cocktails()
 
     get_run_hr_task = get_run_hr()
 
@@ -195,8 +232,14 @@ def sandbox_data_pipeline__get_weather():
 
     (
             start_task
-            >> [get_top_5_cities_task, get_run_hr_task]
-            >> fetch_weather_task
+            >> get_run_hr_task
+            >> [get_top_5_cities_task, fetch_cocktails_task]
+    )
+
+    get_top_5_cities_task >> fetch_weather_task
+
+    (
+            [fetch_weather_task, fetch_cocktails_task]
             >> wait_for_files_in_gcs_task
             >> [write_to_snowflake_task, write_to_bigquery_task]
             >> finish_task
