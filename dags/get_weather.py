@@ -1,3 +1,5 @@
+import ast
+import json
 import logging
 from datetime import datetime, timedelta
 from typing import Optional
@@ -70,6 +72,7 @@ def get_aws_parameter(parameter_name: str, ssm: Optional[boto3.client] = None) -
 
 
 def fetch_rapid_api_data(url: str, key: str, host: str, s3_bucket: str, s3_key: str, querystring: Optional[dict] = None,
+                         transform_callback: Optional[callable] = None
                          ) -> None:
     """
     Make a call to a RapidAPI endpoint.
@@ -93,9 +96,12 @@ def fetch_rapid_api_data(url: str, key: str, host: str, s3_bucket: str, s3_key: 
 
     # Fetch data from the API
     response = requests.get(url, headers=headers, params=querystring)
+    response = str(response.json())
+    if transform_callback:
+        response = transform_callback(response)
 
     # Store data in S3
-    s3.put_object(Body=str(response.json()), Bucket=bucket, Key=s3_key)
+    s3.put_object(Body=response, Bucket=bucket, Key=s3_key)
 
     # Log successful write to S3
     logging.info(f"{s3_key} written to s3://{bucket}")
@@ -148,6 +154,12 @@ def fetch_weather(city: str, **kwargs):
                          querystring=querystring)
 
 
+def clean_cocktail_json(cocktail_json: str) -> str:
+    cocktail_json = cocktail_json.replace("\r", "").replace("\n", "")
+    cocktail_json = ast.literal_eval(cocktail_json)
+    return json.dumps(cocktail_json)
+
+
 @task
 def fetch_cocktails(**kwargs):
     """
@@ -166,7 +178,8 @@ def fetch_cocktails(**kwargs):
     # Define S3 key
     s3_key = f"{prefix}/cocktails/{run_hr}/cocktails.json"
 
-    fetch_rapid_api_data(url=rapid_api_url, key=rapid_api_key, host=rapid_api_host, s3_bucket=bucket, s3_key=s3_key)
+    fetch_rapid_api_data(url=rapid_api_url, key=rapid_api_key, host=rapid_api_host, s3_bucket=bucket, s3_key=s3_key,
+                         transform_callback=clean_cocktail_json)
 
 
 @dag(
@@ -218,10 +231,19 @@ def sandbox_data_pipeline__get_weather():
         }
     )
 
-    write_to_snowflake_task = SQLExecuteQueryOptionalOperator(
+    write_weather_to_snowflake_task = SQLExecuteQueryOptionalOperator(
         task_id=f"write_conditions_to_snowflake",
         conn_id="qbiz_snowflake_admin",
         sql="sql/write_weather.sql",
+        params={"bucket": bucket, "prefix": prefix},
+        trigger_rule="none_failed",
+        skip=skip_snowflake_write,
+    )
+
+    write_cocktails_to_snowflake_task = SQLExecuteQueryOptionalOperator(
+        task_id=f"write_cocktails_to_snowflake",
+        conn_id="qbiz_snowflake_admin",
+        sql="sql/write_cocktails.sql",
         params={"bucket": bucket, "prefix": prefix},
         trigger_rule="none_failed",
         skip=skip_snowflake_write,
@@ -241,7 +263,7 @@ def sandbox_data_pipeline__get_weather():
     (
             [fetch_weather_task, fetch_cocktails_task]
             >> wait_for_files_in_gcs_task
-            >> [write_to_snowflake_task, write_to_bigquery_task]
+            >> [write_weather_to_snowflake_task, write_cocktails_to_snowflake_task, write_to_bigquery_task]
             >> finish_task
     )
 
