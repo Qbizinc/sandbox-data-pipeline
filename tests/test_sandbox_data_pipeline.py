@@ -1,8 +1,8 @@
 import pytest
-
 from airflow.exceptions import AirflowSkipException
 from airflow.models import DagBag
-from dags.get_weather import SQLExecuteQueryOptionalOperator
+
+from dags.sandbox_data_pipeline import SQLExecuteQueryOptionalOperator, clean_cocktail_json
 
 
 class MockExecuteReturn:
@@ -13,7 +13,7 @@ class MockExecuteReturn:
 
 def test_dag_loaded():
     dagbag = DagBag()
-    dag = dagbag.dagbag(dag_id="sandbox_data_pipeline__get_weather")
+    dag = dagbag.dagbag(dag_id="sandbox_data_pipeline")
     assert dagbag.import_errors == {}
     assert dag is not None
 
@@ -40,3 +40,9 @@ def test_execute_skip_true():
     )
     with pytest.raises(AirflowSkipException):
         op.execute(context={})
+
+
+def test_clean_cocktail_json():
+    dirty_json = """{'drinks': [{'idDrink': '11470', 'strAlcoholic': 'Alcoho\rli\n\rc',}]}"""
+    clean_json = """{"drinks": [{"idDrink": "11470", "strAlcoholic": "Alcoholic"}]}"""
+    assert clean_cocktail_json(dirty_json) == clean_json

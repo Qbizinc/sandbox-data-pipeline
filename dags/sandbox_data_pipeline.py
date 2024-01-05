@@ -1,6 +1,7 @@
 import ast
 import json
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -18,10 +19,10 @@ from utils.operators import SQLExecuteQueryOptionalOperator, GCSObjectListExiste
 
 logging.basicConfig(level=logging.INFO)
 
-bucket = "sandbox-data-pipeline"
+s3_bucket = "sandbox-data-pipeline"
+s3_prefix = "api_data"
 gcs_bucket = "qbiz-sandbox-data-pipeline"
-prefix = "snowflake"
-gcs_prefix = "s3-transfer/snowflake/weather"
+gcs_prefix = "s3-transfer/api_data"
 region = "us-west-2"
 
 s3 = boto3.client("s3")
@@ -83,6 +84,7 @@ def fetch_rapid_api_data(url: str, key: str, host: str, s3_bucket: str, s3_key: 
         s3_bucket: The S3 bucket to write the response to.
         s3_key: The S3 key to write the response to.
         querystring: Optional query parameters.
+        transform_callback: Optional callback function to transform the response before writing to S3.
     """
     # Check if the data already exists in S3
     if s3_object_exists(s3_bucket, s3_key):
@@ -101,10 +103,10 @@ def fetch_rapid_api_data(url: str, key: str, host: str, s3_bucket: str, s3_key: 
         response = transform_callback(response)
 
     # Store data in S3
-    s3.put_object(Body=response, Bucket=bucket, Key=s3_key)
+    s3.put_object(Body=response, Bucket=s3_bucket, Key=s3_key)
 
     # Log successful write to S3
-    logging.info(f"{s3_key} written to s3://{bucket}")
+    logging.info(f"{s3_key} written to s3://{s3_bucket}")
 
 
 @task
@@ -148,14 +150,14 @@ def fetch_weather(city: str, **kwargs):
     querystring = {"q": city}
 
     # Define S3 key
-    s3_key = f"{prefix}/weather/{run_hr}/{city_lower}.json"
+    s3_key = f"{s3_prefix}/weather/{run_hr}/{city_lower}.json"
 
-    fetch_rapid_api_data(url=rapid_api_url, key=rapid_api_key, host=rapid_api_host, s3_bucket=bucket, s3_key=s3_key,
+    fetch_rapid_api_data(url=rapid_api_url, key=rapid_api_key, host=rapid_api_host, s3_bucket=s3_bucket, s3_key=s3_key,
                          querystring=querystring)
 
 
 def clean_cocktail_json(cocktail_json: str) -> str:
-    cocktail_json = cocktail_json.replace("\r", "").replace("\n", "")
+    cocktail_json = re.sub(r"[\n\r]", "", cocktail_json)
     cocktail_json = ast.literal_eval(cocktail_json)
     return json.dumps(cocktail_json)
 
@@ -176,9 +178,9 @@ def fetch_cocktails(**kwargs):
     run_hr = ti.xcom_pull(task_ids="get_run_hr")
 
     # Define S3 key
-    s3_key = f"{prefix}/cocktails/{run_hr}/cocktails.json"
+    s3_key = f"{s3_prefix}/cocktails/{run_hr}/cocktails.json"
 
-    fetch_rapid_api_data(url=rapid_api_url, key=rapid_api_key, host=rapid_api_host, s3_bucket=bucket, s3_key=s3_key,
+    fetch_rapid_api_data(url=rapid_api_url, key=rapid_api_key, host=rapid_api_host, s3_bucket=s3_bucket, s3_key=s3_key,
                          transform_callback=clean_cocktail_json)
 
 
@@ -191,13 +193,13 @@ def fetch_cocktails(**kwargs):
         "retries": 1,
         "retry_delay": timedelta(minutes=5),
     },
-    description="Get current weather conditions from weatherAPI.com (via RapidAPI) and send to Snowflake",
+    description="Fetch data from RapidAPI and write to Snowflake/Bigquery using S3 and GCP",
     schedule=timedelta(hours=1),
-    start_date=datetime(2023, 7, 13, 17),
+    start_date=datetime(2024, 1, 4, 11),
     catchup=False,
     tags=["sandbox"],
 )
-def sandbox_data_pipeline__get_weather():
+def sandbox_data_pipeline():
     get_top_5_cities_task = get_top_5_cities()
     fetch_weather_task = fetch_weather.expand(city=get_top_5_cities_task)
     fetch_cocktails_task = fetch_cocktails()
@@ -208,64 +210,95 @@ def sandbox_data_pipeline__get_weather():
         Variable.get("sandbox_data_pipeline__skip_snowflake_write", default_var="False")
     )
 
-    wait_for_files_in_gcs_task = GCSObjectListExistenceSensor(
+    wait_for_weather_files_in_gcs_task = GCSObjectListExistenceSensor(
         google_cloud_conn_id="sandbox-data-pipeline-gcp",
-        task_id="wait_for_files_in_gcs",
+        task_id="wait_for_weather_files_in_gcs",
         bucket=gcs_bucket,
-        prefix=gcs_prefix + "/{{ ti.xcom_pull(task_ids='get_run_hr') }}",
+        prefix=gcs_prefix + "/weather/{{ ti.xcom_pull(task_ids='get_run_hr') }}",
         object_list="{{ ti.xcom_pull(task_ids='get_top_5_cities') }}",
         timeout=600,
         trigger_rule="none_failed",
     )
 
-    write_to_bigquery_task = BigQueryInsertJobOperator(
-        task_id=f"write_conditions_to_bigquery",
+    wait_for_cocktail_files_in_gcs_task = GCSObjectListExistenceSensor(
+        google_cloud_conn_id="sandbox-data-pipeline-gcp",
+        task_id="wait_for_cocktail_files_in_gcs",
+        bucket=gcs_bucket,
+        prefix=gcs_prefix + "/cocktails/{{ ti.xcom_pull(task_ids='get_run_hr') }}",
+        object_list="['cocktails']",
+        timeout=600,
+        trigger_rule="none_failed",
+    )
+
+    write_weather_to_bigquery_task = BigQueryInsertJobOperator(
+        task_id=f"write_weather_to_bigquery",
         gcp_conn_id="sandbox-data-pipeline-gcp",
         params={"bucket": gcs_bucket,
-                "prefix": gcs_prefix},
+                "prefix": f"{gcs_prefix}/weather"},
         configuration={
             "query": {
                 "query": "{% include 'sql/write_weather_bigquery.sql' %}",
                 "useLegacySql": False,
             }
+        },
+    )
+
+    write_cocktails_to_bigquery_task = BigQueryInsertJobOperator(
+        task_id=f"write_cocktails_to_bigquery",
+        gcp_conn_id="sandbox-data-pipeline-gcp",
+        params={"bucket": gcs_bucket,
+                "prefix": f"{gcs_prefix}/cocktails"},
+        configuration={
+            "query": {
+                "query": "{% include 'sql/write_cocktails_bigquery.sql' %}",
+                "useLegacySql": False,
+            }
         }
+    )
+
+    create_snowflake_storage_integration_task = SQLExecuteQueryOptionalOperator(
+        task_id=f"create_snowflake_storage_integration",
+        conn_id="qbiz_snowflake_admin",
+        sql="sql/create_snowflake_storage_integration.sql",
+        params={"bucket": s3_bucket, "prefix": s3_prefix},
+        trigger_rule="none_failed",
+        skip=skip_snowflake_write,
     )
 
     write_weather_to_snowflake_task = SQLExecuteQueryOptionalOperator(
         task_id=f"write_conditions_to_snowflake",
         conn_id="qbiz_snowflake_admin",
-        sql="sql/write_weather.sql",
-        params={"bucket": bucket, "prefix": prefix},
-        trigger_rule="none_failed",
+        sql="sql/write_weather_to_snowflake.sql",
+        params={"bucket": s3_bucket, "prefix": s3_prefix},
         skip=skip_snowflake_write,
     )
 
     write_cocktails_to_snowflake_task = SQLExecuteQueryOptionalOperator(
         task_id=f"write_cocktails_to_snowflake",
         conn_id="qbiz_snowflake_admin",
-        sql="sql/write_cocktails.sql",
-        params={"bucket": bucket, "prefix": prefix},
-        trigger_rule="none_failed",
+        sql="sql/write_cocktails_to_snowflake.sql",
+        params={"bucket": s3_bucket, "prefix": s3_prefix},
         skip=skip_snowflake_write,
     )
 
     start_task = EmptyOperator(task_id="start")
     finish_task = EmptyOperator(task_id="finish", trigger_rule="none_failed")
 
-    (
-            start_task
-            >> get_run_hr_task
-            >> [get_top_5_cities_task, fetch_cocktails_task]
-    )
+    start_task >> get_run_hr_task
 
-    get_top_5_cities_task >> fetch_weather_task
+    get_run_hr_task >> get_top_5_cities_task >> fetch_weather_task
+    get_run_hr_task >> fetch_cocktails_task
 
-    (
-            [fetch_weather_task, fetch_cocktails_task]
-            >> wait_for_files_in_gcs_task
-            >> [write_weather_to_snowflake_task, write_cocktails_to_snowflake_task, write_to_bigquery_task]
-            >> finish_task
-    )
+    fetch_weather_task >> wait_for_weather_files_in_gcs_task >> write_weather_to_bigquery_task
+    fetch_cocktails_task >> wait_for_cocktail_files_in_gcs_task >> write_cocktails_to_bigquery_task
+
+    [fetch_weather_task, fetch_cocktails_task] >> create_snowflake_storage_integration_task
+    create_snowflake_storage_integration_task >> [write_weather_to_snowflake_task, write_cocktails_to_snowflake_task]
+
+    [write_weather_to_bigquery_task,
+     write_cocktails_to_bigquery_task,
+     write_weather_to_snowflake_task,
+     write_cocktails_to_snowflake_task] >> finish_task
 
 
-sandbox_data_pipeline__get_weather()
+sandbox_data_pipeline()

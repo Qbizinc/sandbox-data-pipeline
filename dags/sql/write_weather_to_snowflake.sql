@@ -1,20 +1,4 @@
-create database if not exists SANDBOX_DATA_PIPELINE;
-
 use schema SANDBOX_DATA_PIPELINE.public;
-
-CREATE STORAGE INTEGRATION IF NOT EXISTS sandbox_data_pipeline
-  TYPE = EXTERNAL_STAGE
-  STORAGE_PROVIDER = 'S3'
-  ENABLED = TRUE
-  STORAGE_AWS_ROLE_ARN = 'arn:aws:iam::907770664110:role/sandbox-dpl-snowflake'
-  STORAGE_ALLOWED_LOCATIONS = ('s3://sandbox-data-pipeline/snowflake/');
-
-CREATE STAGE IF NOT EXISTS sandbox_data_pipeline
-    STORAGE_INTEGRATION = sandbox_data_pipeline
-    URL = 's3://{{ params["bucket"] }}/{{ params["prefix"] }}/'
-    FILE_FORMAT = (TYPE = JSON FILE_EXTENSION = '.json');
-
--- list @sandbox_data_pipeline;
 
 create or replace table weather_stage
 (
@@ -24,9 +8,8 @@ create or replace table weather_stage
 truncate weather_stage;
 
 COPY INTO weather_stage
-    FROM @sandbox_data_pipeline/weather/{{ task_instance.xcom_pull(task_ids='get_run_hr') }}/
+    FROM @sandbox_data_pipeline/{{ params['prefix']}}/weather/{{ task_instance.xcom_pull(task_ids='get_run_hr') }}/
 FILE_FORMAT = (TYPE = JSON);
-
 
 create table if not exists weather
 (

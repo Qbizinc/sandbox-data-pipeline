@@ -70,9 +70,9 @@ Services utilized include:
    2. wait for all files to appear in GCS bucket (custom Airflow GCS sensor)
 6. **write_to_snowflake**:
    1. skip if variable `sandbox_data_pipeline__skip_snowflake_write` is set to `True` (custom operator)
-   2. Execute `sql/write_weather.sql` to load data from GCS into Snowflake idempotently
+   2. Execute `sql/write_weather_to_snowflake.sql` to load data from GCS into Snowflake idempotently
 7. **write_to_bigquery**:
-   1. Execute `sql/write_weather_bigquery.sql` to load data from GCS into BigQuery idempotently
+   1. Execute `sql/write_weather_to_bigquery.sql` to load data from GCS into BigQuery idempotently
 8. **finish**: empty task
 
 ---
