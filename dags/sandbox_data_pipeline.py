@@ -2,6 +2,7 @@ import ast
 import json
 import logging
 import re
+import sys
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -13,9 +14,10 @@ from airflow.exceptions import AirflowSkipException
 from airflow.models import Variable
 from airflow.operators.empty import EmptyOperator
 from airflow.providers.google.cloud.operators.bigquery import BigQueryInsertJobOperator
-from botocore.errorfactory import ClientError
 
-from utils.operators import SQLExecuteQueryOptionalOperator, GCSObjectListExistenceSensor
+sys.path.append("/home/airflow/airflow")
+from include.utils.operators import SQLExecuteQueryOptionalOperator, GCSObjectListExistenceSensor
+from include.utils.helpers import s3_object_exists, get_aws_parameter
 
 logging.basicConfig(level=logging.INFO)
 
@@ -23,53 +25,8 @@ s3_bucket = "sandbox-data-pipeline"
 s3_prefix = "api_data"
 gcs_bucket = "qbiz-sandbox-data-pipeline"
 gcs_prefix = "s3-transfer/api_data"
-region = "us-west-2"
 
 s3 = boto3.client("s3")
-
-
-def s3_object_exists(bucket: str, key: str, s3: Optional[boto3.client] = None) -> bool:
-    """
-    Check if an object exists in an S3 bucket.
-
-    Args:
-        bucket: The name of the S3 bucket.
-        key: The key of the object in the S3 bucket.
-        s3: An optional pre-initialized boto3 S3 client.
-
-    Returns:
-        True if the object exists, False otherwise.
-    """
-    if s3 is None:
-        s3 = boto3.client("s3")
-
-    try:
-        s3.head_object(Bucket=bucket, Key=key)
-    except ClientError as e:
-        if e.response["Error"]["Code"] == "404":
-            return False
-        else:
-            raise e
-
-    return True
-
-
-def get_aws_parameter(parameter_name: str, ssm: Optional[boto3.client] = None) -> str:
-    """
-    Get a parameter from AWS Systems Manager Parameter Store.
-
-    Args:
-        parameter_name: The name of the parameter to retrieve.
-        ssm: An optional pre-initialized boto3 SSM client.
-
-    Returns:
-        The value of the parameter.
-    """
-    if ssm is None:
-        ssm = boto3.client("ssm", region_name=region)
-
-    response = ssm.get_parameter(Name=parameter_name)
-    return response["Parameter"]["Value"]
 
 
 def fetch_rapid_api_data(url: str, key: str, host: str, s3_bucket: str, s3_key: str, querystring: Optional[dict] = None,
@@ -121,7 +78,8 @@ def get_run_hr(**kwargs):
 @task
 def get_top_5_cities():
     api_gateway_url = get_aws_parameter(
-        "sandbox_data_pipeline__weather_api_gateway_url"
+        "sandbox_data_pipeline__weather_api_gateway_url",
+        region="us-west-2"
     )
     cities = requests.get(api_gateway_url).json()
     return cities
@@ -180,7 +138,8 @@ def fetch_cocktails(**kwargs):
     # Define S3 key
     s3_key = f"{s3_prefix}/cocktails/{run_hr}/cocktails.json"
 
-    fetch_rapid_api_data(url=rapid_api_url, key=rapid_api_key, host=rapid_api_host, s3_bucket=s3_bucket, s3_key=s3_key,
+    fetch_rapid_api_data(url=rapid_api_url, key=rapid_api_key, host=rapid_api_host,
+                         s3_bucket=s3_bucket, s3_key=s3_key,
                          transform_callback=clean_cocktail_json)
 
 
@@ -227,7 +186,6 @@ def sandbox_data_pipeline():
         prefix=gcs_prefix + "/cocktails/{{ ti.xcom_pull(task_ids='get_run_hr') }}",
         object_list="['cocktails']",
         timeout=600,
-        trigger_rule="none_failed",
     )
 
     write_weather_to_bigquery_task = BigQueryInsertJobOperator(
@@ -237,7 +195,7 @@ def sandbox_data_pipeline():
                 "prefix": f"{gcs_prefix}/weather"},
         configuration={
             "query": {
-                "query": "{% include 'sql/write_weather_bigquery.sql' %}",
+                "query": "sql/write_weather_bigquery.sql",
                 "useLegacySql": False,
             }
         },
@@ -250,7 +208,7 @@ def sandbox_data_pipeline():
                 "prefix": f"{gcs_prefix}/cocktails"},
         configuration={
             "query": {
-                "query": "{% include 'sql/write_cocktails_bigquery.sql' %}",
+                "query": "sql/write_cocktails_bigquery.sql",
                 "useLegacySql": False,
             }
         }

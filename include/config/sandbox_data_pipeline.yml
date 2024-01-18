@@ -1,0 +1,9 @@
+- task_id: write_weather_to_bigquery
+  operator: BigQueryInsertJobOperator
+  conn_id: sandbox-data-pipeline-gcp
+  script_path: "sql/write_weather_bigquery.sql
+  script_parameters:
+    bucket: blah
+    prefix: blah
+  depends_on: blah
+  skip: blah
