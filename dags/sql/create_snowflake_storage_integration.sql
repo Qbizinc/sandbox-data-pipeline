@@ -19,6 +19,7 @@ CREATE STORAGE INTEGRATION IF NOT EXISTS sandbox_data_pipeline
 -- desc integration sandbox_data_pipeline;
 -- you will need the STORAGE_AWS_EXTERNAL_ID for the AWS IAM trust policy
 -- *** this changes *** every time the storage integration is created/recreated
+-- to update, go to IAM > Roles > sandbox-data-pipeline-gcp > Trust relationships
 
 CREATE OR REPLACE STAGE sandbox_data_pipeline
     STORAGE_INTEGRATION = sandbox_data_pipeline
