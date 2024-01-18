@@ -119,7 +119,7 @@ measure8		STRING,
 measure9		STRING,
 tags		STRING,
 video		STRING,
-run_hr	REQUIRED	INTEGER,
+run_hr	INTEGER NOT NULL,
     created_at_ts timestamp default current_timestamp NOT NULL
 );
 
