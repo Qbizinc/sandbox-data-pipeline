@@ -2,6 +2,8 @@
 
 ## Overview
 
+Note: for instructions on setting up Airflow on EC2, see [this wiki page](https://qbiz-wiki.com/en/technology/airflow/airflow_on_ec2).
+
 The purpose of this project is to demonstrate a realistic end-to-end data pipeline
 spanning multiple cloud services, orchestrated by Airflow running on an EC2 instance.
 Geography-specific weather condition data is pulled from an API, 
