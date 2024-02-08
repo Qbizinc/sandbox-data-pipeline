@@ -4,8 +4,10 @@ import logging
 import re
 import sys
 from datetime import datetime, timedelta
+import time
 from typing import Optional
 
+import anomalo
 import boto3
 import requests
 import str2bool
@@ -142,6 +144,47 @@ def fetch_cocktails(**kwargs):
                          s3_bucket=s3_bucket, s3_key=s3_key,
                          transform_callback=clean_cocktail_json)
 
+
+def trigger_anomalo_check_run(host: str, api_token: str, table_id: int, s3_bucket: str, s3_key: str):
+    """
+    Make a call to the Anomalo API endpoint to trigger data quality checks for s specified table.
+    Args:
+        host: The API host
+        api_token: The API key
+        table_id: Anomalo Table ID
+        s3_bucket: The S3 bucket to write the response to
+        s3_key: The S3 key to write the response to
+    """
+    
+    anomalo_client = anomalo.Client(host=host, api_token=api_token)
+    check_run_response = anomalo_client.run_checks(table_id=table_id)
+
+    # Parse result to get unique check run id
+    check_run_id = check_run_response["run_checks_job_id"]
+
+    # Continually query Anomalo API to get results of Anomalo check run until all checks are completed
+    # Use exponential backoff (we'll start with multiples of 10 seconds; most checks complete in under a minute)
+    completed = False
+    counter = 1
+    seconds_interval = 10
+
+    while not completed:
+        check_run_result = anomalo_client.get_run_result(job_id=check_run_id)
+        check_runs = check_run_result["check_runs"]
+        check_statuses = [check["results_pending"] for check in check_runs]
+        if True in check_statuses:
+            wait_interval = counter * seconds_interval
+            time.sleep(wait_interval)
+            counter += 1
+            continue
+        else:
+            completed = True
+
+    # Store data in S3
+    s3.put_object(Body=check_run_result, Bucket=s3_bucket, Key=s3_key)
+
+    # Log successful write to S3
+    logging.info(f"{s3_key} written to s3://{s3_bucket}")
 
 @dag(
     default_args={
