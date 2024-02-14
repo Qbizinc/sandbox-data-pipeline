@@ -145,21 +145,27 @@ def fetch_cocktails(**kwargs):
                          transform_callback=clean_cocktail_json)
 
 
-def trigger_anomalo_check_run(host: str, api_token: str, table_id: int, s3_bucket: str, s3_key: str):
+def trigger_anomalo_check_run(host: str, api_token: str, table_name: str, s3_bucket: str, s3_key: str) -> None:
     """
     Make a call to the Anomalo API endpoint to trigger data quality checks for s specified table.
     Args:
         host: The API host
         api_token: The API key
-        table_id: Anomalo Table ID
+        table_name: Full name of the table in Anomalo
         s3_bucket: The S3 bucket to write the response to
         s3_key: The S3 key to write the response to
     """
     
-    anomalo_client = anomalo.Client(host=host, api_token=api_token)
-    run_checks_response = anomalo_client.run_checks(table_id=table_id)
+    # Check if the data already exists in S3
+    if s3_object_exists(s3_bucket, s3_key):
+        raise AirflowSkipException
 
-    # Parse result to get unique check run id
+    # Use Anomalo API to get table ID from table name
+    anomalo_client = anomalo.Client(host=host, api_token=api_token)
+    table_id = api_client.get_table_information(table_name=table_name)["id"]
+
+    # Run checks + save unique check run id to continually check results
+    run_checks_response = anomalo_client.run_checks(table_id=table_id)
     check_run_id = run_checks_response["run_checks_job_id"]
 
     # Continually query Anomalo API to get results of Anomalo check run until all checks are completed
@@ -185,6 +191,29 @@ def trigger_anomalo_check_run(host: str, api_token: str, table_id: int, s3_bucke
 
     # Log successful write to S3
     logging.info(f"{s3_key} written to s3://{s3_bucket}")
+
+@task
+def anomalo_checks(table_name: str, **kwargs):
+    """
+    Run suite of Anomalo checks for a specified table
+    Args:
+        table_name (str): Table to run Anomalo checks on
+    """
+
+    # Get Anomalo API credentials from AWS parameters
+    anomalo_instance_host = get_aws_parameter("sandbox_data_pipeline__anomalo_api_host")
+    anomalo_api_secret_token = get_aws_parameter("sandbox_data_pipeline__anomalo_api_token")
+
+    # Retrieve run hour from task instance
+    ti = kwargs["ti"]
+    run_hr = ti.xcom_pull(task_ids="get_run_hr")
+
+    # Define S3 key
+    s3_key = f"{s3_prefix}/anomalo_checks/{run_hr}/anomalo_checks.json"
+
+    # Trigger Anomalo checks
+    trigger_anomalo_check_run(host=anomalo_instance_host, api_token=anomalo_api_secret_token, table_name=table_name,
+                              s3_bucket=s3_bucket, s3_key=s3_key)
 
 @dag(
     default_args={
