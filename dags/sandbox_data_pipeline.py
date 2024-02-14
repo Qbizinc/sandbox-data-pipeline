@@ -193,7 +193,7 @@ def trigger_anomalo_check_run(host: str, api_token: str, table_name: str, s3_buc
     logging.info(f"{s3_key} written to s3://{s3_bucket}")
 
 @task
-def anomalo_checks(table_name: str, **kwargs):
+def run_anomalo_checks(table_name: str, **kwargs):
     """
     Run suite of Anomalo checks for a specified table
     Args:
@@ -310,6 +310,9 @@ def sandbox_data_pipeline():
         params={"bucket": s3_bucket, "prefix": s3_prefix},
         skip=skip_snowflake_write,
     )
+
+    anomalo_checks_cocktails = run_anomalo_checks(table_name='sandbox-data-pipeline.sandbox_data_pipeline.cocktails')
+    anomalo_checks_weather = run_anomalo_checks(table_name='sandbox-data-pipeline.sandbox_data_pipeline.weather')
 
     start_task = EmptyOperator(task_id="start")
     finish_task = EmptyOperator(task_id="finish", trigger_rule="none_failed")
