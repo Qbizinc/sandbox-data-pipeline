@@ -157,10 +157,10 @@ def trigger_anomalo_check_run(host: str, api_token: str, table_id: int, s3_bucke
     """
     
     anomalo_client = anomalo.Client(host=host, api_token=api_token)
-    check_run_response = anomalo_client.run_checks(table_id=table_id)
+    run_checks_response = anomalo_client.run_checks(table_id=table_id)
 
     # Parse result to get unique check run id
-    check_run_id = check_run_response["run_checks_job_id"]
+    check_run_id = run_checks_response["run_checks_job_id"]
 
     # Continually query Anomalo API to get results of Anomalo check run until all checks are completed
     # Use exponential backoff (we'll start with multiples of 10 seconds; most checks complete in under a minute)
