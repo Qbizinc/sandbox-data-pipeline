@@ -311,8 +311,8 @@ def sandbox_data_pipeline():
         skip=skip_snowflake_write,
     )
 
-    anomalo_checks_cocktails = run_anomalo_checks(table_name='sandbox-data-pipeline.sandbox_data_pipeline.cocktails')
-    anomalo_checks_weather = run_anomalo_checks(table_name='sandbox-data-pipeline.sandbox_data_pipeline.weather')
+    anomalo_checks_cocktails_bq = run_anomalo_checks(table_name='sandbox-data-pipeline.sandbox_data_pipeline.cocktails')
+    anomalo_checks_weather_bq = run_anomalo_checks(table_name='sandbox-data-pipeline.sandbox_data_pipeline.weather')
 
     start_task = EmptyOperator(task_id="start")
     finish_task = EmptyOperator(task_id="finish", trigger_rule="none_failed")
