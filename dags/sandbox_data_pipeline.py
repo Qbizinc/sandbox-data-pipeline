@@ -162,7 +162,7 @@ def trigger_anomalo_check_run(host: str, api_token: str, table_name: str, s3_buc
 
     # Use Anomalo API to get table ID from table name
     anomalo_client = anomalo.Client(host=host, api_token=api_token)
-    table_id = api_client.get_table_information(table_name=table_name)["id"]
+    table_id = anomalo_client.get_table_information(table_name=table_name)["id"]
 
     # Run checks + save unique check run id to continually check results
     run_checks_response = anomalo_client.run_checks(table_id=table_id)
