@@ -147,7 +147,8 @@ def fetch_cocktails(**kwargs):
 
 def trigger_anomalo_check_run(host: str, api_token: str, table_name: str, s3_bucket: str, s3_key: str) -> None:
     """
-    Make a call to the Anomalo API endpoint to trigger data quality checks for s specified table.
+    Make a call to the Anomalo API endpoint to trigger data quality checks for a specified table.
+    NOTE: Excludes DataFreshness and DataVolume as per https://github.com/anomalo-hq/anomalo-airflow-provider/blob/main/src/airflow/providers/anomalo/operators/anomalo.py#L112
     Args:
         host: The API host
         api_token: The API key
@@ -187,6 +188,7 @@ def trigger_anomalo_check_run(host: str, api_token: str, table_name: str, s3_buc
             completed = True
 
     # Store data in S3
+    check_run_result = str(check_run_result)
     s3.put_object(Body=check_run_result, Bucket=s3_bucket, Key=s3_key)
 
     # Log successful write to S3
