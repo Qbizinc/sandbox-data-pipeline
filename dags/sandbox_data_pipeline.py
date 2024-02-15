@@ -311,8 +311,8 @@ def sandbox_data_pipeline():
         skip=skip_snowflake_write,
     )
 
-    anomalo_checks_cocktails_bq = run_anomalo_checks(table_name='sandbox-data-pipeline.sandbox_data_pipeline.cocktails')
-    anomalo_checks_weather_bq = run_anomalo_checks(table_name='sandbox-data-pipeline.sandbox_data_pipeline.weather')
+    anomalo_checks_cocktails_bq = run_anomalo_checks(table_name='qbiz-bigquery-sandbox-pipeline.sandbox_data_pipeline.cocktails')
+    anomalo_checks_weather_bq = run_anomalo_checks(table_name='qbiz-bigquery-sandbox-pipeline.sandbox_data_pipeline.weather')
 
     start_task = EmptyOperator(task_id="start")
     finish_task = EmptyOperator(task_id="finish", trigger_rule="none_failed")
@@ -328,10 +328,12 @@ def sandbox_data_pipeline():
     [fetch_weather_task, fetch_cocktails_task] >> create_snowflake_storage_integration_task
     create_snowflake_storage_integration_task >> [write_weather_to_snowflake_task, write_cocktails_to_snowflake_task]
 
-    [write_weather_to_bigquery_task,
-     write_cocktails_to_bigquery_task,
-     write_weather_to_snowflake_task,
+    [write_weather_to_snowflake_task,
      write_cocktails_to_snowflake_task] >> finish_task
+
+    write_weather_to_bigquery_task >> anomalo_checks_weather_bq >> finish_task
+
+    write_cocktails_to_bigquery_task >> anomalo_checks_cocktails_bq >> finish_task
 
 
 sandbox_data_pipeline()
