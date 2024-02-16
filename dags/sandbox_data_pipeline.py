@@ -188,6 +188,19 @@ def sandbox_data_pipeline():
         timeout=600,
     )
 
+    write_weather_to_bigquery_stage_task = BigQueryInsertJobOperator(
+        task_id=f"write_weather_to_bigquery_stage",
+        gcp_conn_id="sandbox-data-pipeline-gcp",
+        params={"bucket": gcs_bucket,
+                "prefix": f"{gcs_prefix}/weather"},
+        configuration={
+            "query": {
+                "query": "sql/write_weather_to_bigquery_stage.sql",
+                "useLegacySql": False,
+            }
+        },
+    )
+
     write_weather_to_bigquery_task = BigQueryInsertJobOperator(
         task_id=f"write_weather_to_bigquery",
         gcp_conn_id="sandbox-data-pipeline-gcp",
@@ -199,6 +212,19 @@ def sandbox_data_pipeline():
                 "useLegacySql": False,
             }
         },
+    )
+
+    write_cocktails_to_bigquery_stage_task = BigQueryInsertJobOperator(
+        task_id=f"write_cocktails_to_bigquery_stage",
+        gcp_conn_id="sandbox-data-pipeline-gcp",
+        params={"bucket": gcs_bucket,
+                "prefix": f"{gcs_prefix}/cocktails"},
+        configuration={
+            "query": {
+                "query": "sql/write_cocktails_to_bigquery_stage.sql",
+                "useLegacySql": False,
+            }
+        }
     )
 
     write_cocktails_to_bigquery_task = BigQueryInsertJobOperator(
