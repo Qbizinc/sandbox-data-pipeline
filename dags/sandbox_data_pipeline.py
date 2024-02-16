@@ -234,7 +234,7 @@ def sandbox_data_pipeline():
                 "prefix": f"{gcs_prefix}/cocktails"},
         configuration={
             "query": {
-                "query": "sql/write_cocktail_to_bigquery.sql",
+                "query": "sql/write_cocktails_to_bigquery.sql",
                 "useLegacySql": False,
             }
         }
