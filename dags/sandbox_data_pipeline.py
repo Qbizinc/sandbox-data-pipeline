@@ -249,10 +249,26 @@ def sandbox_data_pipeline():
         skip=skip_snowflake_write,
     )
 
+    write_weather_to_snowflake_stage_task = SQLExecuteQueryOptionalOperator(
+        task_id=f"write_conditions_to_snowflake_stage",
+        conn_id="qbiz_snowflake_admin",
+        sql="sql/write_weather_to_snowflake_stage.sql",
+        params={"bucket": s3_bucket, "prefix": s3_prefix},
+        skip=skip_snowflake_write,
+    )
+
     write_weather_to_snowflake_task = SQLExecuteQueryOptionalOperator(
         task_id=f"write_conditions_to_snowflake",
         conn_id="qbiz_snowflake_admin",
         sql="sql/write_weather_to_snowflake.sql",
+        params={"bucket": s3_bucket, "prefix": s3_prefix},
+        skip=skip_snowflake_write,
+    )
+
+    write_cocktails_to_snowflake_stage_task = SQLExecuteQueryOptionalOperator(
+        task_id=f"write_cocktails_to_snowflake_stage",
+        conn_id="qbiz_snowflake_admin",
+        sql="sql/write_cocktails_to_snowflake_stage.sql",
         params={"bucket": s3_bucket, "prefix": s3_prefix},
         skip=skip_snowflake_write,
     )
