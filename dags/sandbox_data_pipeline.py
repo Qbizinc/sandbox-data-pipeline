@@ -355,8 +355,8 @@ def sandbox_data_pipeline():
         skip=skip_snowflake_write,
     )
 
-    anomalo_checks_cocktails_bigquery = run_anomalo_checks(table_name='qbiz-bigquery-sandbox-pipeline.sandbox_data_pipeline.cocktails')
-    anomalo_checks_weather_bigquery = run_anomalo_checks(table_name='qbiz-bigquery-sandbox-pipeline.sandbox_data_pipeline.weather')
+    anomalo_checks_cocktails_bigquery = run_anomalo_checks(table_name='qbiz-bigquery-sandbox-pipeline.sandbox_data_pipeline.cocktails_stage')
+    anomalo_checks_weather_bigquery = run_anomalo_checks(table_name='qbiz-bigquery-sandbox-pipeline.sandbox_data_pipeline.weather_stage')
 
     start_task = EmptyOperator(task_id="start")
     finish_task = EmptyOperator(task_id="finish", trigger_rule="none_failed")
@@ -366,8 +366,8 @@ def sandbox_data_pipeline():
     get_run_hr_task >> get_top_5_cities_task >> fetch_weather_task
     get_run_hr_task >> fetch_cocktails_task
 
-    fetch_weather_task >> wait_for_weather_files_in_gcs_task >> write_weather_to_bigquery_stage_task >> write_weather_to_bigquery_task
-    fetch_cocktails_task >> wait_for_cocktail_files_in_gcs_task >> write_cocktails_to_bigquery_stage_task >> write_cocktails_to_bigquery_task
+    fetch_weather_task >> wait_for_weather_files_in_gcs_task >> write_weather_to_bigquery_stage_task >> anomalo_checks_weather_bigquery
+    fetch_cocktails_task >> wait_for_cocktail_files_in_gcs_task >> write_cocktails_to_bigquery_stage_task >> anomalo_checks_cocktails_bigquery
 
     [fetch_weather_task, fetch_cocktails_task] >> create_snowflake_storage_integration_task
     create_snowflake_storage_integration_task >> [write_weather_to_snowflake_stage_task, write_cocktails_to_snowflake_stage_task]
@@ -378,9 +378,8 @@ def sandbox_data_pipeline():
     [write_weather_to_snowflake_task,
      write_cocktails_to_snowflake_task] >> finish_task
 
-    write_weather_to_bigquery_task >> anomalo_checks_weather_bigquery >> finish_task
+    anomalo_checks_weather_bigquery >> write_weather_to_bigquery_task >> finish_task
 
-    write_cocktails_to_bigquery_task >> anomalo_checks_cocktails_bigquery >> finish_task
-
+    anomalo_checks_cocktails_bigquery >> write_cocktails_to_bigquery_task >> finish_task
 
 sandbox_data_pipeline()
