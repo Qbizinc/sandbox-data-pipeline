@@ -188,6 +188,19 @@ def sandbox_data_pipeline():
         timeout=600,
     )
 
+    write_weather_to_bigquery_stage_task = BigQueryInsertJobOperator(
+        task_id=f"write_weather_to_bigquery_stage",
+        gcp_conn_id="sandbox-data-pipeline-gcp",
+        params={"bucket": gcs_bucket,
+                "prefix": f"{gcs_prefix}/weather"},
+        configuration={
+            "query": {
+                "query": "sql/write_weather_to_bigquery_stage.sql",
+                "useLegacySql": False,
+            }
+        },
+    )
+
     write_weather_to_bigquery_task = BigQueryInsertJobOperator(
         task_id=f"write_weather_to_bigquery",
         gcp_conn_id="sandbox-data-pipeline-gcp",
@@ -195,10 +208,23 @@ def sandbox_data_pipeline():
                 "prefix": f"{gcs_prefix}/weather"},
         configuration={
             "query": {
-                "query": "sql/write_weather_bigquery.sql",
+                "query": "sql/write_weather_to_bigquery.sql",
                 "useLegacySql": False,
             }
         },
+    )
+
+    write_cocktails_to_bigquery_stage_task = BigQueryInsertJobOperator(
+        task_id=f"write_cocktails_to_bigquery_stage",
+        gcp_conn_id="sandbox-data-pipeline-gcp",
+        params={"bucket": gcs_bucket,
+                "prefix": f"{gcs_prefix}/cocktails"},
+        configuration={
+            "query": {
+                "query": "sql/write_cocktails_to_bigquery_stage.sql",
+                "useLegacySql": False,
+            }
+        }
     )
 
     write_cocktails_to_bigquery_task = BigQueryInsertJobOperator(
@@ -208,7 +234,7 @@ def sandbox_data_pipeline():
                 "prefix": f"{gcs_prefix}/cocktails"},
         configuration={
             "query": {
-                "query": "sql/write_cocktails_bigquery.sql",
+                "query": "sql/write_cocktails_to_bigquery.sql",
                 "useLegacySql": False,
             }
         }
@@ -223,10 +249,26 @@ def sandbox_data_pipeline():
         skip=skip_snowflake_write,
     )
 
+    write_weather_to_snowflake_stage_task = SQLExecuteQueryOptionalOperator(
+        task_id=f"write_conditions_to_snowflake_stage",
+        conn_id="qbiz_snowflake_admin",
+        sql="sql/write_weather_to_snowflake_stage.sql",
+        params={"bucket": s3_bucket, "prefix": s3_prefix},
+        skip=skip_snowflake_write,
+    )
+
     write_weather_to_snowflake_task = SQLExecuteQueryOptionalOperator(
         task_id=f"write_conditions_to_snowflake",
         conn_id="qbiz_snowflake_admin",
         sql="sql/write_weather_to_snowflake.sql",
+        params={"bucket": s3_bucket, "prefix": s3_prefix},
+        skip=skip_snowflake_write,
+    )
+
+    write_cocktails_to_snowflake_stage_task = SQLExecuteQueryOptionalOperator(
+        task_id=f"write_cocktails_to_snowflake_stage",
+        conn_id="qbiz_snowflake_admin",
+        sql="sql/write_cocktails_to_snowflake_stage.sql",
         params={"bucket": s3_bucket, "prefix": s3_prefix},
         skip=skip_snowflake_write,
     )
@@ -247,11 +289,14 @@ def sandbox_data_pipeline():
     get_run_hr_task >> get_top_5_cities_task >> fetch_weather_task
     get_run_hr_task >> fetch_cocktails_task
 
-    fetch_weather_task >> wait_for_weather_files_in_gcs_task >> write_weather_to_bigquery_task
-    fetch_cocktails_task >> wait_for_cocktail_files_in_gcs_task >> write_cocktails_to_bigquery_task
+    fetch_weather_task >> wait_for_weather_files_in_gcs_task >> write_weather_to_bigquery_stage_task >> write_weather_to_bigquery_task
+    fetch_cocktails_task >> wait_for_cocktail_files_in_gcs_task >> write_cocktails_to_bigquery_stage_task >> write_cocktails_to_bigquery_task
 
     [fetch_weather_task, fetch_cocktails_task] >> create_snowflake_storage_integration_task
-    create_snowflake_storage_integration_task >> [write_weather_to_snowflake_task, write_cocktails_to_snowflake_task]
+    create_snowflake_storage_integration_task >> [write_weather_to_snowflake_stage_task, write_cocktails_to_snowflake_stage_task]
+
+    write_weather_to_snowflake_stage_task >> write_weather_to_snowflake_task
+    write_cocktails_to_snowflake_stage_task >> write_cocktails_to_snowflake_task
 
     [write_weather_to_bigquery_task,
      write_cocktails_to_bigquery_task,
