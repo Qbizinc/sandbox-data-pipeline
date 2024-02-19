@@ -147,8 +147,8 @@ def fetch_cocktails(**kwargs):
 
 def trigger_anomalo_check_run(host: str, api_token: str, table_name: str, s3_bucket: str, s3_key: str) -> None:
     """
-    Make a call to the Anomalo API endpoint to trigger data quality checks for a specified table.
-    NOTE: Excludes DataFreshness and DataVolume as per https://github.com/anomalo-hq/anomalo-airflow-provider/blob/main/src/airflow/providers/anomalo/operators/anomalo.py#L112
+    Custom function to make a call to the Anomalo API endpoint to trigger data quality checks for a specified table.
+    Existing Anomalo operators can be found here: https://github.com/anomalo-hq/anomalo-airflow-provider/blob/main/src/airflow/providers/anomalo/operators/anomalo.py
     Args:
         host: The API host
         api_token: The API key
@@ -355,8 +355,8 @@ def sandbox_data_pipeline():
         skip=skip_snowflake_write,
     )
 
-    anomalo_checks_cocktails_bigquery = run_anomalo_checks(table_name='qbiz-bigquery-sandbox-pipeline.sandbox_data_pipeline.cocktails_stage')
-    anomalo_checks_weather_bigquery = run_anomalo_checks(table_name='qbiz-bigquery-sandbox-pipeline.sandbox_data_pipeline.weather_stage')
+    anomalo_checks_cocktails_bigquery = task(task_id='anomalo_checks_cocktails_bigquery')(run_anomalo_checks)(table_name='qbiz-bigquery-sandbox-pipeline.sandbox_data_pipeline.cocktails_stage')
+    anomalo_checks_weather_bigquery = task(task_id='anomalo_checks_weather_bigquery')(run_anomalo_checks)(table_name='qbiz-bigquery-sandbox-pipeline.sandbox_data_pipeline.weather_stage')
 
     start_task = EmptyOperator(task_id="start")
     finish_task = EmptyOperator(task_id="finish", trigger_rule="none_failed")
