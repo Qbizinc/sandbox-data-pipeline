@@ -30,6 +30,8 @@ gcs_prefix = "s3-transfer/api_data"
 
 s3 = boto3.client("s3")
 
+bigquery_cocktails_stage_table = 'qbiz-bigquery-sandbox-pipeline.sandbox_data_pipeline.cocktails_stage'
+bigquery_weather_stage_table = 'qbiz-bigquery-sandbox-pipeline.sandbox_data_pipeline.weather_stage'
 
 def fetch_rapid_api_data(url: str, key: str, host: str, s3_bucket: str, s3_key: str, querystring: Optional[dict] = None,
                          transform_callback: Optional[callable] = None
@@ -355,8 +357,8 @@ def sandbox_data_pipeline():
         skip=skip_snowflake_write,
     )
 
-    anomalo_checks_cocktails_bigquery = task(task_id='anomalo_checks_cocktails_bigquery')(run_anomalo_checks)(table_name='qbiz-bigquery-sandbox-pipeline.sandbox_data_pipeline.cocktails_stage')
-    anomalo_checks_weather_bigquery = task(task_id='anomalo_checks_weather_bigquery')(run_anomalo_checks)(table_name='qbiz-bigquery-sandbox-pipeline.sandbox_data_pipeline.weather_stage')
+    anomalo_checks_cocktails_bigquery = run_anomalo_checks.override(task_id='anomalo_checks_cocktails_bigquery')(table_name=bigquery_cocktails_stage_table)
+    anomalo_checks_weather_bigquery = run_anomalo_checks.override(task_id='anomalo_checks_weather_bigquery')(table_name=bigquery_weather_stage_table)
 
     start_task = EmptyOperator(task_id="start")
     finish_task = EmptyOperator(task_id="finish", trigger_rule="none_failed")
