@@ -3,7 +3,7 @@ import json
 import logging
 import re
 import sys
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 import time
 from typing import Optional
 
@@ -147,9 +147,9 @@ def fetch_cocktails(**kwargs):
                          transform_callback=clean_cocktail_json)
 
 
-def trigger_anomalo_check_run(host: str, api_token: str, table_name: str, s3_bucket: str, s3_key: str) -> None:
+def trigger_anomalo_check_run(host: str, api_token: str, table_name: str, s3_bucket: str, s3_key: str, run_date: Optional[date] = None) -> None:
     """
-    Custom function to make a call to the Anomalo API endpoint to trigger data quality checks for a specified table.
+    Custom function to make a call to the Anomalo API endpoint to trigger ALL data quality checks for a specified table.
     Existing Anomalo operators can be found here: https://github.com/anomalo-hq/anomalo-airflow-provider/blob/main/src/airflow/providers/anomalo/operators/anomalo.py
     Args:
         host: The API host
@@ -157,6 +157,7 @@ def trigger_anomalo_check_run(host: str, api_token: str, table_name: str, s3_buc
         table_name: Full name of the table in Anomalo
         s3_bucket: The S3 bucket to write the response to
         s3_key: The S3 key to write the response to
+        run_date: Optional date to run Anomalo checks for (default is today)
     """
     
     # Check if the data already exists in S3
@@ -168,7 +169,11 @@ def trigger_anomalo_check_run(host: str, api_token: str, table_name: str, s3_buc
     table_id = anomalo_client.get_table_information(table_name=table_name)["id"]
 
     # Run checks + save unique check run id to continually check results
-    run_checks_response = anomalo_client.run_checks(table_id=table_id)
+    if run_date is None:
+        run_date_str = date.today().strftime("%Y-%m-%d")
+    else:
+        run_date_str = run_date.strftime("%Y-%m-%d")
+    run_checks_response = anomalo_client.run_checks(table_id=table_id, interval_id=run_date_str)
     check_run_id = run_checks_response["run_checks_job_id"]
 
     # Continually query Anomalo API to get results of Anomalo check run until all checks are completed
