@@ -32,6 +32,8 @@ s3 = boto3.client("s3")
 
 bigquery_cocktails_stage_table = 'qbiz-bigquery-sandbox-pipeline.sandbox_data_pipeline.cocktails_stage'
 bigquery_weather_stage_table = 'qbiz-bigquery-sandbox-pipeline.sandbox_data_pipeline.weather_stage'
+snowflake_weather_stage_table = 'qbiz-snowflake-sandbox-pipeline.public.weather_stage'
+#TODO: Add Snowflake cocktails stage table once Anomalo <> Snowflake issues are figured out
 
 def fetch_rapid_api_data(url: str, key: str, host: str, s3_bucket: str, s3_key: str, querystring: Optional[dict] = None,
                          transform_callback: Optional[callable] = None
@@ -169,6 +171,7 @@ def trigger_anomalo_check_run(host: str, api_token: str, table_name: str, s3_buc
     table_id = anomalo_client.get_table_information(table_name=table_name)["id"]
 
     # Run checks + save unique check run id to continually check results
+    # NOTE: Default API behavior is to check PREVIOUS day's data; changing default behavior to be TODAY's data
     if run_date is None:
         run_date_str = date.today().strftime("%Y-%m-%d")
     else:
@@ -206,7 +209,7 @@ def run_anomalo_checks(table_name: str, **kwargs):
     """
     Run suite of Anomalo checks for a specified table
     Args:
-        table_name (str): Table to run Anomalo checks on
+        table_name (str): Table name (as seen in Anomalo) to run Anomalo checks on
     """
 
     # Get Anomalo API credentials from AWS parameters
@@ -365,6 +368,8 @@ def sandbox_data_pipeline():
     anomalo_checks_cocktails_bigquery = run_anomalo_checks.override(task_id='anomalo_checks_cocktails_bigquery')(table_name=bigquery_cocktails_stage_table)
     anomalo_checks_weather_bigquery = run_anomalo_checks.override(task_id='anomalo_checks_weather_bigquery')(table_name=bigquery_weather_stage_table)
 
+    anomalo_checks_weather_snowflake = run_anomalo_checks.override(task_id='anomalo_checks_weather_snowflake')(table_name=snowflake_weather_stage_table)
+
     start_task = EmptyOperator(task_id="start")
     finish_task = EmptyOperator(task_id="finish", trigger_rule="none_failed")
 
@@ -379,7 +384,7 @@ def sandbox_data_pipeline():
     [fetch_weather_task, fetch_cocktails_task] >> create_snowflake_storage_integration_task
     create_snowflake_storage_integration_task >> [write_weather_to_snowflake_stage_task, write_cocktails_to_snowflake_stage_task]
 
-    write_weather_to_snowflake_stage_task >> write_weather_to_snowflake_task
+    write_weather_to_snowflake_stage_task >> anomalo_checks_weather_snowflake >> write_weather_to_snowflake_task
     write_cocktails_to_snowflake_stage_task >> write_cocktails_to_snowflake_task
 
     [write_weather_to_snowflake_task,
