@@ -77,7 +77,7 @@ def get_run_hr(**kwargs):
     """get run hour from ts. Used in downstream tasks to enforce idempotency"""
 
     ts = kwargs["ts"]
-    run_hr = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S.%f%z").strftime("%Y%m%d%H00")
+    run_hr = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S%z").strftime("%Y%m%d%H00")
     return run_hr
 
 
