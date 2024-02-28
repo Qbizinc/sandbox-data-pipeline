@@ -221,7 +221,7 @@ def run_anomalo_checks(table_name: str, **kwargs):
     run_hr = ti.xcom_pull(task_ids="get_run_hr")
 
     # Define S3 key
-    s3_key = f"{s3_prefix}/anomalo_checks/{run_hr}/anomalo_checks.json"
+    s3_key = f"{s3_prefix}/anomalo_checks/{run_hr}/{table_name}/anomalo_checks.json"
 
     # Trigger Anomalo checks
     trigger_anomalo_check_run(host=anomalo_instance_host, api_token=anomalo_api_secret_token, table_name=table_name,
