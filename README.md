@@ -1,5 +1,21 @@
 # sandbox_data_pipeline
 
+## Docker container deployement
+
+To build the container
+
+```sh
+docker build -t qbiz/airflow:v2.8.2 --file docker/Dockerfile-airflow-282 .
+```
+
+To run the container
+
+```sh
+docker run -it -p 8080:8080 qbiz/airflow:v2.8.2 bash -c "/start.sh"
+```
+
+The file sandbox-data-pipeline-bigquery.json is necessary to create GCP connection to Qbiz project
+
 ## Overview
 
 Note: for instructions on setting up Airflow on EC2, see [this wiki page](https://qbiz-wiki.com/en/technology/airflow/airflow_on_ec2).

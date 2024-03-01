@@ -17,7 +17,7 @@ from airflow.models import Variable
 from airflow.operators.empty import EmptyOperator
 from airflow.providers.google.cloud.operators.bigquery import BigQueryInsertJobOperator
 
-sys.path.append("/home/airflow/airflow")
+sys.path.append("/opt/airflow")
 from include.utils.operators import SQLExecuteQueryOptionalOperator, GCSObjectListExistenceSensor
 from include.utils.helpers import s3_object_exists, get_aws_parameter
 
@@ -77,7 +77,7 @@ def get_run_hr(**kwargs):
     """get run hour from ts. Used in downstream tasks to enforce idempotency"""
 
     ts = kwargs["ts"]
-    run_hr = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S.%f%z").strftime("%Y%m%d%H00")
+    run_hr = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S%z").strftime("%Y%m%d%H00")
     return run_hr
 
 
@@ -161,7 +161,7 @@ def trigger_anomalo_check_run(host: str, api_token: str, table_name: str, s3_buc
         s3_key: The S3 key to write the response to
         run_date: Optional date to run Anomalo checks for (default is today)
     """
-    
+
     # Check if the data already exists in S3
     if s3_object_exists(s3_bucket, s3_key):
         raise AirflowSkipException
@@ -221,7 +221,7 @@ def run_anomalo_checks(table_name: str, **kwargs):
     run_hr = ti.xcom_pull(task_ids="get_run_hr")
 
     # Define S3 key
-    s3_key = f"{s3_prefix}/anomalo_checks/{run_hr}/anomalo_checks.json"
+    s3_key = f"{s3_prefix}/anomalo_checks/{run_hr}/{table_name}/anomalo_checks.json"
 
     # Trigger Anomalo checks
     trigger_anomalo_check_run(host=anomalo_instance_host, api_token=anomalo_api_secret_token, table_name=table_name,
