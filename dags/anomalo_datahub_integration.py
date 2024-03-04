@@ -8,6 +8,7 @@ from typing import Optional
 
 import anomalo
 from airflow.decorators import dag, task
+from airflow.macros import ds_add
 from airflow.operators.empty import EmptyOperator
 from airflow.sensors.base import PokeReturnValue
 
@@ -33,9 +34,9 @@ anomalo_api_secret_token = get_aws_parameter("sandbox_data_pipeline__anomalo_api
 anomalo_client = anomalo.Client(host=anomalo_instance_host, api_token=anomalo_api_secret_token)
 
 @task.sensor(poke_interval=30, timeout=3600, mode="poke")
-def anomalo_check_sensor(api_client: anomalo.Client, table_name: str, run_date: Optional[date] = None, **kwargs) -> PokeReturnValue:
+def anomalo_check_sensor(api_client: anomalo.Client, table_name: str, **kwargs) -> PokeReturnValue:
     """
-    Check if Anomalo check for a given table are completed via Anomalo API
+    Check if yesterday's Anomalo checks for a given table are completed via Anomalo API
     Args:
         table_name (str): Table name (as seen in Anomalo) to check for a completed Anomalo run
     """
@@ -43,29 +44,26 @@ def anomalo_check_sensor(api_client: anomalo.Client, table_name: str, run_date: 
     # Use Anomalo API client to get table ID from table name
     table_id = api_client.get_table_information(table_name=table_name)["id"]
 
-    # Specify run date so we don't accidentally check yesterday's Anomalo checks
-    # NOTE: Default API behavior is to check PREVIOUS day's data; changing default behavior to be TODAY's data
-    if run_date is None:
-        run_date_str = date.today().strftime("%Y-%m-%d")
-    else:
-        run_date_str = run_date.strftime("%Y-%m-%d")
+    # Fill in start date (yesterday's date) and end date (today's date) as needed
+    start_date = ds_add(kwargs["ds"], -1)
+    end_date = kwargs["ds"]
 
     # Get most recent check run within specified interval and check status
-    check_run_status = anomalo_client.get_check_intervals(table_id=table_id, start=run_date_str, end=None)[0]["status"]
+    check_run_status = anomalo_client.get_check_intervals(table_id=table_id, start=start_date, end=end_date)[0]["status"]
 
     if check_run_status == 'pending':
         checks_complete = False
     elif check_run_status == 'skipped':
-        print(f"Checks were skipped for table {table_name} on run date {run_date_str}, please investigate.")
-        logging.info(f"Checks were skipped for table {table_name} on run date {run_date_str}, please investigate.")
+        print(f"Checks were skipped for table {table_name} for date {start_date}, please investigate.")
+        logging.info(f"Checks were skipped for table {table_name} for date {start_date}, please investigate.")
         checks_complete = True
     elif check_run_status == 'complete':
-        logging.info(f"Checks completed for table {table_name} on run date {run_date_str}.")
+        logging.info(f"Checks completed for table {table_name} for date {start_date}.")
         checks_complete = True
     # Any other statuses that are not in the above
     else:
-        print(f"Unknown check status for table {table_name} on run date {run_date_str}, please investigate.")
-        logging.info(f"Unknown check status for table {table_name} on run date {run_date_str}, please investigate.")
+        print(f"Unknown check status for table {table_name} for date {start_date}, please investigate.")
+        logging.info(f"Unknown check status for table {table_name} for date {start_date}, please investigate.")
         checks_complete = True
 
     return PokeReturnValue(is_done=checks_complete)
