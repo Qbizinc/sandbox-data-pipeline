@@ -88,7 +88,7 @@ def write_anomalo_data_to_datahub(api_client: anomalo.Client, **kwargs):
         "retry_delay": timedelta(minutes=5),
     },
     description="Fetch check run result data from Anomalo and insert into Datahub",
-    schedule='30 17 * * *', # 5:30pm UTC every day
+    schedule='00 18 * * *', # 6:00pm UTC every day
     start_date=datetime(2024, 3, 5),
     catchup=False,
     tags=["sandbox", "anomalo"],
