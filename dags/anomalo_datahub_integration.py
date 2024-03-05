@@ -14,7 +14,6 @@ from airflow.sensors.base import PokeReturnValue
 
 sys.path.append("/home/airflow/airflow")
 from include.utils.helpers import get_aws_parameter
-from include.utils.anomalo_datahub import anomalo_to_datahub
 
 logging.basicConfig(level=logging.INFO)
 
@@ -45,8 +44,8 @@ def anomalo_check_sensor(api_client: anomalo.Client, table_name: str, **kwargs) 
     table_id = api_client.get_table_information(table_name=table_name)["id"]
 
     # Fill in start date (yesterday's date) and end date (today's date) as needed
-    start_date = ds_add(kwargs["ds"], -1)
-    end_date = kwargs["ds"]
+    start_date = kwargs["ds"]
+    end_date = ds_add(kwargs["ds"], 1)
 
     # Get most recent check run within specified interval and check status
     check_run_status = anomalo_client.get_check_intervals(table_id=table_id, start=start_date, end=end_date)[0]["status"]
@@ -76,7 +75,13 @@ def write_anomalo_data_to_datahub(api_client: anomalo.Client, **kwargs):
     Args:
     * api_client: Authenticated Anomalo API Client (will not work if no client is passed)
     '''
-    anomalo_to_datahub(api_client=api_client)
+
+    # Moving "expensive" import inside task to reduce DAG parsing time
+    from include.utils.anomalo_datahub import anomalo_to_datahub
+    # Fill in start date (yesterday's date) and end date (today's date) as needed
+    start_date = kwargs["ds"]
+    end_date = ds_add(kwargs["ds"], 1)
+    anomalo_to_datahub(api_client=api_client, start_date=start_date, end_date=end_date)
 
 @dag(
     default_args={
@@ -89,7 +94,7 @@ def write_anomalo_data_to_datahub(api_client: anomalo.Client, **kwargs):
     },
     description="Fetch check run result data from Anomalo and insert into Datahub",
     schedule='00 18 * * *', # 6:00pm UTC every day
-    start_date=datetime(2024, 3, 5),
+    start_date=datetime(2024, 3, 4),
     catchup=False,
     tags=["sandbox", "anomalo"],
 )

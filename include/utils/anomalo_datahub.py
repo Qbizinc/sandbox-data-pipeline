@@ -43,14 +43,16 @@ from datahub.metadata.schema_classes import DatasetProfileClass
 import anomalo
 import uuid
 import time
+from typing import Optional
 
-def datasetUrn(tbl: str) -> str:
+
+def datasetUrn(platform: str, tbl: str) -> str:
     return builder.make_dataset_urn(platform, tbl)
-
+'''
 def fldUrn(tbl: str, fld: str) -> str:
     return f"urn:li:schemaField:({datasetUrn(tbl)}, {fld})"
-
-def emitAssertionResult(assertionResult: AssertionRunEvent) -> None:
+'''
+def emitAssertionResult(assertionResult: AssertionRunEvent, emitter: DatahubRestEmitter) -> None:
     dataset_assertionRunEvent_mcp = MetadataChangeProposalWrapper(
         entityType="assertion",
         changeType=ChangeType.UPSERT,
@@ -61,17 +63,18 @@ def emitAssertionResult(assertionResult: AssertionRunEvent) -> None:
     # Emit BatchAssertion Result! (timseries aspect)
     emitter.emit_mcp(dataset_assertionRunEvent_mcp)
 
-def assertion_pass_fail(test, table, res, url, msg, platform):
+def assertion_pass_fail(test, table, res, url, msg, platform, emitter):
+    asserteeUrn=datasetUrn(platform, table)
     assertion_res = AssertionRunEvent(
         timestampMillis=int(time.time() * 1000),
         # assertionUrn=builder.make_assertion_urn(test),
-        asserteeUrn=datasetUrn(table),
+        asserteeUrn=asserteeUrn,
         assertionUrn=builder.make_assertion_urn(
             builder.datahub_guid(
                 {
                     "platform": platform,
                     "nativeType": test,
-                    "dataset": datasetUrn(table),
+                    "dataset": asserteeUrn,
                 }
             )
         ),  
@@ -79,9 +82,9 @@ def assertion_pass_fail(test, table, res, url, msg, platform):
         status=AssertionRunStatus.COMPLETE,
         result=AssertionResult(type=AssertionResultType.SUCCESS, externalUrl=url, nativeResults={"URL":url,"Msg":msg}) if (res == "pass") else AssertionResult(type=AssertionResultType.FAILURE, externalUrl=url, nativeResults={"URL":url,"Msg":msg})
     )
-    emitAssertionResult(assertion_res)
+    emitAssertionResult(assertion_res, emitter)
 
-def add_link(link, table, platform):
+def add_link(institutional_memory_element, link_to_add, table, platform, graph):
     dataset_urn = make_dataset_urn(platform=platform, name=table)
     current_institutional_memory = graph.get_aspect_v2(
         entity_urn=dataset_urn,
@@ -144,6 +147,7 @@ class EmitMCP:
         self.emitter = emitter
         self.assertion_dataPlatformInstance = assertion_dataPlatformInstance
         self.platform = platform
+        self.datasetUrn = datasetUrn(platform, tbl)
 
     def create_assertion_info(self):
         assertion_info = AssertionInfo(
@@ -153,7 +157,7 @@ class EmitMCP:
                 operator=AssertionStdOperator._NATIVE_,
                 nativeType=self.nativeType,
                 aggregation=AssertionStdAggregation.COLUMNS,
-                dataset=datasetUrn(self.tbl),
+                dataset=self.datasetUrn,
                 ),
             )
         self.assertion_info = assertion_info
@@ -176,7 +180,7 @@ class EmitMCP:
                     {
                         "platform": self.platform,
                         "nativeType": self.nativeType,
-                        "dataset": datasetUrn(self.tbl),
+                        "dataset": self.datasetUrn,
                     }
                 )
             ),
@@ -201,7 +205,7 @@ class EmitMCP:
 
 # Section 2: Function wrapper to push Anomalo data into Datahub
 # This function will be imported into the Anomalo <> Datahub integration DAG
-def anomalo_to_datahub(api_client: anomalo.Client) -> None:
+def anomalo_to_datahub(api_client: anomalo.Client, start_date: str, end_date: str) -> None:
     '''
     Main function of Anomalo <> Datahub integration script that pushes Anomalo data into Datahub
     Args:
@@ -221,7 +225,7 @@ def anomalo_to_datahub(api_client: anomalo.Client) -> None:
     assertion_dataPlatformInstance = DataPlatformInstance(
         platform=builder.make_data_platform_urn(platform)
     )
-    configured_tables = api_client.configured_tables()
+
     '''
     The actual full name of a table can't be retrieved via Anomalo API.
     We have to map the warehouse ID to the catalog/database name.
@@ -232,8 +236,6 @@ def anomalo_to_datahub(api_client: anomalo.Client) -> None:
     # {"warehouses": [{"id": 4633, "name": "Snowflake", "warehouse_type": "snowflake"}, {"id": 4919, "name": "qbiz-snowflake-sandbox-pipeline", "warehouse_type": "snowflake"}, {"id": 5611, "name": "qbiz-bigquery-sbx-pipeline", "warehouse_type": "bigquery"}, {"id": 5644, "name": "qbiz-bigquery-sandbox-pipeline", "warehouse_type": "bigquery"}]}
 
     warehouse_mapping = {4633: 'Snowflake', 4919: 'qbiz-snowflake-sandbox-pipeline', 5611: 'qbiz-bigquery-sbx-pipeline', 5644: 'qbiz-bigquery-sandbox-pipeline'}
-
-
     configured_tables = api_client.configured_tables()
 
     for configured_table in configured_tables:
@@ -258,7 +260,11 @@ def anomalo_to_datahub(api_client: anomalo.Client) -> None:
         
         table_info = api_client.get_table_information(table_name=anomalo_table_name, warehouse_id=anomalo_warehouse_id)
         table_id = table_info['id']
+        # Get job id of most recent check run within specified interval
+        latest_job_id = api_client.get_check_intervals(table_id=table_id, start=start_date, end=end_date)[0]["latest_run_checks_job_id"]
+        '''
         latest_job_id = table_info['recent_status']['recent_intervals'][0]['latest_run_checks_job_id']
+        '''
         results = api_client.get_run_result(job_id=latest_job_id)
         tbl_homepage_url = anomalo_url + str(table_id)
         link_to_add = tbl_homepage_url
@@ -273,10 +279,10 @@ def anomalo_to_datahub(api_client: anomalo.Client) -> None:
         )
 
         # Below adds link back to Anomalo's table homepage in Datahub's Documentation section
-        add_link(institutional_memory_element, dhtbl, platform)
+        add_link(institutional_memory_element, link_to_add, dhtbl, platform, graph)
 
         # Below pushes each individual check to Datahub's Validation section
         for i in results['check_runs']:
             check_section_mcp = EmitMCP(i['run_config']['_metadata']['check_message'], dhtbl, emitter, assertion_dataPlatformInstance, platform)
             check_section_mcp.run()
-            assertion_pass_fail(i['run_config']['_metadata']['check_message'], dhtbl,"pass" if (i['results']['success'] == True) else "fail", i['check_run_url'], i['results']['evaluated_message'], platform)
+            assertion_pass_fail(i['run_config']['_metadata']['check_message'], dhtbl,"pass" if (i['results']['success'] == True) else "fail", i['check_run_url'], i['results']['evaluated_message'], platform, emitter)
