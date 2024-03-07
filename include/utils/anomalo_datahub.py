@@ -1,7 +1,6 @@
 # Helper script for Anomalo <> Datahub integration script
 
 # Section 1: Base attributes and functions
-import json
 import time
 import datahub.emitter.mce_builder as builder
 from datahub.emitter.mcp import MetadataChangeProposalWrapper
@@ -48,10 +47,6 @@ from typing import Optional
 
 def datasetUrn(platform: str, tbl: str) -> str:
     return builder.make_dataset_urn(platform, tbl)
-'''
-def fldUrn(tbl: str, fld: str) -> str:
-    return f"urn:li:schemaField:({datasetUrn(tbl)}, {fld})"
-'''
 def emitAssertionResult(assertionResult: AssertionRunEvent, emitter: DatahubRestEmitter) -> None:
     dataset_assertionRunEvent_mcp = MetadataChangeProposalWrapper(
         entityType="assertion",
@@ -174,7 +169,6 @@ class EmitMCP:
         mcp = MetadataChangeProposalWrapper(
             entityType="assertion",
             changeType=ChangeType.UPSERT,
-            #entityUrn=builder.make_assertion_urn(self.assertion_info),
             entityUrn=builder.make_assertion_urn(
                 builder.datahub_guid(
                     {
@@ -209,7 +203,9 @@ def anomalo_to_datahub(api_client: anomalo.Client, start_date: str, end_date: st
     '''
     Main function of Anomalo <> Datahub integration script that pushes Anomalo data into Datahub
     Args:
-    * api_client: Authenticated Anomalo API Client (will not work if no client is passed)
+        api_client: Authenticated Anomalo API Client (will not work if no client is passed)
+        start_date: Start date of Anomalo check interval to be inserted into Datahub (in "%Y-%m-%d" format)
+        end_date: End date of Anomalo check interval to be inserted into Datahub (in "%Y-%m-%d" format)
     '''
     # Please replace all variables below with those unique to your instance
     gms_server = 'http://34.210.197.39:8080' # your gms server
@@ -251,20 +247,15 @@ def anomalo_to_datahub(api_client: anomalo.Client, start_date: str, end_date: st
             print("Error: WH " + str(anomalo_warehouse_id) + " DNE. Skipping " + anomalo_table_name)
             continue
         
-        # database_name = warehouse_mapping[anomalo_warehouse_id]
         tbl = f"{database_name}.{anomalo_table_name}"
 
         # Below dhtbl variable must equal the fully qualified table path you see in Datahub's table navigation on top
         # For example, everything after /browse/dataset/prod/DW_NAME
         dhtbl = "dbc-895f1218-7031.anomalo_unity.main." + anomalo_table_name
         
-        table_info = api_client.get_table_information(table_name=anomalo_table_name, warehouse_id=anomalo_warehouse_id)
-        table_id = table_info['id']
+        table_id = api_client.get_table_information(table_name=anomalo_table_name, warehouse_id=anomalo_warehouse_id)['id']
         # Get job id of most recent check run within specified interval
         latest_job_id = api_client.get_check_intervals(table_id=table_id, start=start_date, end=end_date)[0]["latest_run_checks_job_id"]
-        '''
-        latest_job_id = table_info['recent_status']['recent_intervals'][0]['latest_run_checks_job_id']
-        '''
         results = api_client.get_run_result(job_id=latest_job_id)
         tbl_homepage_url = anomalo_url + str(table_id)
         link_to_add = tbl_homepage_url

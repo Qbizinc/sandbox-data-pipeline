@@ -1,9 +1,6 @@
-import ast
-import json
 import logging
 import sys
-from datetime import date, datetime, timedelta
-import time
+from datetime import datetime, timedelta
 from typing import Optional
 
 import anomalo
@@ -33,24 +30,32 @@ anomalo_api_secret_token = get_aws_parameter("sandbox_data_pipeline__anomalo_api
 anomalo_client = anomalo.Client(host=anomalo_instance_host, api_token=anomalo_api_secret_token)
 
 @task.sensor(poke_interval=30, timeout=3600, mode="poke")
-def anomalo_check_sensor(api_client: anomalo.Client, table_name: str, **kwargs) -> PokeReturnValue:
+def anomalo_check_sensor(api_client: anomalo.Client, table_name: str, start_date: Optional[str] = None, end_date: Optional[str] = None, **kwargs) -> PokeReturnValue:
     """
-    Check if yesterday's Anomalo checks for a given table are completed via Anomalo API
+    Check if Anomalo checks for a given table are completed via Anomalo API
     Args:
-        table_name (str): Table name (as seen in Anomalo) to check for a completed Anomalo run
+        api_client: Authenticated Anomalo API Client (will not work if no client is passed)
+        table_name: Table name (as seen in Anomalo) to check for a completed Anomalo run
+        start_date: Optional start date of Anomalo check run interval to be inserted into Datahub (in "%Y-%m-%d" format)
+        end_date: Optional end date of Anomalo check run interval to be inserted into Datahub (in "%Y-%m-%d" format)
+
+    Returns:
+        PokeReturnValue: Boolean dictating whether the sensor keeps checking Anomalo check results or ends and is marked as successful
     """
 
     # Use Anomalo API client to get table ID from table name
     table_id = api_client.get_table_information(table_name=table_name)["id"]
 
-    # Fill in start date (yesterday's date) and end date (today's date) as needed
-    start_date = kwargs["ds"]
-    end_date = ds_add(kwargs["ds"], 1)
+    # Default Behavior (if no dates supplied): Fill in start date (yesterday's date) and end date (today's date)
+    if start_date is None and end_date is None:
+        start_date = kwargs["ds"]
+        end_date = ds_add(kwargs["ds"], 1)
 
     # Get most recent check run within specified interval and check status
     check_run_status = anomalo_client.get_check_intervals(table_id=table_id, start=start_date, end=end_date)[0]["status"]
 
     if check_run_status == 'pending':
+        print(f"Checks not yet complete for table {table_name} for date {start_date}, will check again soon.")
         checks_complete = False
     elif check_run_status == 'skipped':
         print(f"Checks were skipped for table {table_name} for date {start_date}, please investigate.")
@@ -59,7 +64,7 @@ def anomalo_check_sensor(api_client: anomalo.Client, table_name: str, **kwargs) 
     elif check_run_status == 'complete':
         logging.info(f"Checks completed for table {table_name} for date {start_date}.")
         checks_complete = True
-    # Any other statuses that are not in the above
+    # Any other statuses that are not in the above (there may be other statuses requiring custom handling)
     else:
         print(f"Unknown check status for table {table_name} for date {start_date}, please investigate.")
         logging.info(f"Unknown check status for table {table_name} for date {start_date}, please investigate.")
@@ -69,18 +74,21 @@ def anomalo_check_sensor(api_client: anomalo.Client, table_name: str, **kwargs) 
 
 
 @task
-def write_anomalo_data_to_datahub(api_client: anomalo.Client, **kwargs):
+def write_anomalo_data_to_datahub(api_client: anomalo.Client, start_date: Optional[str] = None, end_date: Optional[str] = None, **kwargs):
     '''
     Simple task wrapper function to run below function imported from anomalo_datahub.py
     Args:
-    * api_client: Authenticated Anomalo API Client (will not work if no client is passed)
+        api_client: Authenticated Anomalo API Client (will not work if no client is passed)
+        start_date: Optional start date of Anomalo check interval to be inserted into Datahub (in "%Y-%m-%d" format)
+        end_date: Optional end date of Anomalo check interval to be inserted into Datahub (in "%Y-%m-%d" format)
     '''
 
     # Moving "expensive" import inside task to reduce DAG parsing time
     from include.utils.anomalo_datahub import anomalo_to_datahub
-    # Fill in start date (yesterday's date) and end date (today's date) as needed
-    start_date = kwargs["ds"]
-    end_date = ds_add(kwargs["ds"], 1)
+    # Default Behavior (if no dates supplied): Fill in start date (yesterday's date) and end date (today's date)
+    if start_date is None and end_date is None:
+        start_date = kwargs["ds"]
+        end_date = ds_add(kwargs["ds"], 1)
     anomalo_to_datahub(api_client=api_client, start_date=start_date, end_date=end_date)
 
 @dag(
