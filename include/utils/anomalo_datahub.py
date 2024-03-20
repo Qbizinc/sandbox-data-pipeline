@@ -211,17 +211,20 @@ def anomalo_to_datahub(api_client: anomalo.Client, start_date: str, end_date: st
     gms_server = 'http://34.210.197.39:8080' # your gms server
     # anomalo_url = "https://CUSTOMER.ANOMALO.COM/dashboard/tables/"
     anomalo_url = "https://app.anomalo.com/dashboard/home/search"
-    # TODO: Refactor to use different platforms based on actual table source
-    platform = "bigquery" # https://datahubproject.io/docs/generated/metamodel/entities/dataplatform
+
+    # List out platforms (i.e. data warehouses) that the Sandbox data pipeline interacts with
+    # Supported platforms: https://datahubproject.io/docs/generated/metamodel/entities/dataplatform
+    platforms = ["bigquery", "snowflake"]
     graph = DataHubGraph(config=DatahubClientConfig(server=gms_server))
 
     # Create an emitter to the GMS REST API.
     emitter = DatahubRestEmitter(gms_server = gms_server)
-    # Construct an assertion platform object.
-    assertion_dataPlatformInstance = DataPlatformInstance(
-        platform=builder.make_data_platform_urn(platform)
-    )
-
+    # Construct assertion platform objects (will access each as needed)
+    assertion_dataPlatformInstances = {
+        platform: DataPlatformInstance(
+            platform=builder.make_data_platform_urn(platform)
+        ) for platform in platforms
+    }
     '''
     The actual full name of a table can't be retrieved via Anomalo API.
     We have to map the warehouse ID to the catalog/database name.
@@ -251,6 +254,7 @@ def anomalo_to_datahub(api_client: anomalo.Client, start_date: str, end_date: st
 
         # Below dhtbl variable must equal the fully qualified table path you see in Datahub's table navigation on top
         # For example, everything after /browse/dataset/prod/DW_NAME
+        #TODO: See if below link needs to change based on warehouse
         dhtbl = "dbc-895f1218-7031.anomalo_unity.main." + anomalo_table_name
         
         table_id = api_client.get_table_information(table_name=anomalo_table_name, warehouse_id=anomalo_warehouse_id)['id']
@@ -268,6 +272,11 @@ def anomalo_to_datahub(api_client: anomalo.Client, start_date: str, end_date: st
             description=link_description,
             createStamp=current_timestamp,
         )
+
+        # Set platform and assertion_dataPlatformInstance values based on the platform mappings below
+        platform_mapping = {'Snowflake': 'snowflake', 'qbiz-snowflake-sandbox-pipeline': 'snowflake', 'qbiz-bigquery-sbx-pipeline': 'bigquery', 'qbiz-bigquery-sandbox-pipeline': 'bigquery'}
+        platform = platform_mapping[database_name]
+        assertion_dataPlatformInstance = assertion_dataPlatformInstances[platform]
 
         # Below adds link back to Anomalo's table homepage in Datahub's Documentation section
         add_link(institutional_memory_element, link_to_add, dhtbl, platform, graph)
