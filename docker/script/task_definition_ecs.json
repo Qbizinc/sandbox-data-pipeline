@@ -1,0 +1,107 @@
+{
+    "taskDefinitionArn": "arn:aws:ecs:us-west-2:907770664110:task-definition/AirflowAndres:3",
+    "containerDefinitions": [
+        {
+            "name": "AirflowDocker",
+            "image": "907770664110.dkr.ecr.us-west-2.amazonaws.com/airflowdeployement:latest",
+            "cpu": 0,
+            "portMappings": [
+                {
+                    "name": "airflowdocker-8080-tcp",
+                    "containerPort": 8080,
+                    "hostPort": 8080,
+                    "protocol": "tcp",
+                    "appProtocol": "http"
+                }
+            ],
+            "essential": true,
+            "entryPoint": [
+                "bash",
+                "-c",
+                "\"/start.sh\""
+            ],
+            "environment": [],
+            "environmentFiles": [],
+            "mountPoints": [],
+            "volumesFrom": [],
+            "secrets": [
+                {
+                    "name": "SNOWFLAKE_QBIZ_LOGIN",
+                    "valueFrom": "arn:aws:secretsmanager:us-west-2:907770664110:secret:snowflake-account-admin-credentials-jef2ZM:username::"
+                },
+                {
+                    "name": "SNOWFLAKE_QBIZ_PASSWORD",
+                    "valueFrom": "arn:aws:secretsmanager:us-west-2:907770664110:secret:snowflake-account-admin-credentials-jef2ZM:password::"
+                }
+            ],
+            "ulimits": [],
+            "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                    "awslogs-create-group": "true",
+                    "awslogs-group": "/ecs/AirflowAndres",
+                    "awslogs-region": "us-west-2",
+                    "awslogs-stream-prefix": "ecs"
+                },
+                "secretOptions": []
+            },
+            "systemControls": []
+        }
+    ],
+    "family": "AirflowAndres",
+    "taskRoleArn": "arn:aws:iam::907770664110:role/demo-app-task-execution-role",
+    "executionRoleArn": "arn:aws:iam::907770664110:role/demo-app-task-execution-role",
+    "networkMode": "awsvpc",
+    "revision": 3,
+    "volumes": [],
+    "status": "ACTIVE",
+    "requiresAttributes": [
+        {
+            "name": "com.amazonaws.ecs.capability.logging-driver.awslogs"
+        },
+        {
+            "name": "ecs.capability.execution-role-awslogs"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.ecr-auth"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.docker-remote-api.1.19"
+        },
+        {
+            "name": "ecs.capability.secrets.asm.environment-variables"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.task-iam-role"
+        },
+        {
+            "name": "ecs.capability.execution-role-ecr-pull"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.docker-remote-api.1.18"
+        },
+        {
+            "name": "ecs.capability.task-eni"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.docker-remote-api.1.29"
+        }
+    ],
+    "placementConstraints": [],
+    "compatibilities": [
+        "EC2",
+        "FARGATE"
+    ],
+    "requiresCompatibilities": [
+        "EC2"
+    ],
+    "cpu": "1024",
+    "memory": "3072",
+    "runtimePlatform": {
+        "cpuArchitecture": "X86_64",
+        "operatingSystemFamily": "LINUX"
+    },
+    "registeredAt": "2024-03-15T21:15:38.505Z",
+    "registeredBy": "arn:aws:iam::907770664110:user/andres",
+    "tags": []
+}

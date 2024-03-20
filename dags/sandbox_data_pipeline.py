@@ -17,7 +17,7 @@ from airflow.models import Variable
 from airflow.operators.empty import EmptyOperator
 from airflow.providers.google.cloud.operators.bigquery import BigQueryInsertJobOperator
 
-sys.path.append("/home/airflow/airflow")
+sys.path.append("/opt/airflow")
 from include.utils.operators import SQLExecuteQueryOptionalOperator, GCSObjectListExistenceSensor
 from include.utils.helpers import s3_object_exists, get_aws_parameter
 
@@ -161,7 +161,7 @@ def trigger_anomalo_check_run(host: str, api_token: str, table_name: str, s3_buc
         s3_key: The S3 key to write the response to
         run_date: Optional date to run Anomalo checks for (default is today)
     """
-    
+
     # Check if the data already exists in S3
     if s3_object_exists(s3_bucket, s3_key):
         raise AirflowSkipException

@@ -1,0 +1,24 @@
+FROM apache/airflow:2.8.2
+USER root
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+         libpq-dev \
+  && apt-get install -y vim \
+  && apt-get autoremove -yqq --purge \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY /docker/script/start.sh /
+RUN chmod +x /start.sh
+
+ENV AIRFLOW__CORE__LOAD_EXAMPLES=False
+USER airflow
+
+COPY requirements.txt /
+
+RUN pip install -r /requirements.txt
+
+COPY --chown=airflow:root dags /opt/airflow/dags
+COPY --chown=airflow:root include /opt/airflow/include
+COPY --chown=airflow:root sandbox-data-pipeline-bigquery.json /opt/airflow/
