@@ -3,7 +3,7 @@
 airflow db init
 
 airflow connections add 'sandbox-data-pipeline-gcp' \
-    --conn-json '{"conn_type": "google_cloud_platform", "extra": {"key_path": "/opt/airflow/sandbox-data-pipeline-bigquery.json", "project": "sandbox-data-pipeline", "num_retries": 5}}'
+    --conn-json '{"conn_type": "google_cloud_platform", "extra": {"keyfile_dict": '$GCP_SANDBOX_SA', "project": "sandbox-data-pipeline", "num_retries": 5}}'
 
 airflow connections add 'qbiz_snowflake_admin' \
     --conn-json '{

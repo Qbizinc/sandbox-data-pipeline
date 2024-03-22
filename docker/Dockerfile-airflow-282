@@ -21,4 +21,3 @@ RUN pip install -r /requirements.txt
 
 COPY --chown=airflow:root dags /opt/airflow/dags
 COPY --chown=airflow:root include /opt/airflow/include
-COPY --chown=airflow:root sandbox-data-pipeline-bigquery.json /opt/airflow/

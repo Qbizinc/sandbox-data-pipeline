@@ -1,5 +1,5 @@
 {
-    "taskDefinitionArn": "arn:aws:ecs:us-west-2:907770664110:task-definition/AirflowAndres:3",
+    "taskDefinitionArn": "arn:aws:ecs:us-west-2:907770664110:task-definition/AirflowAndres:4",
     "containerDefinitions": [
         {
             "name": "AirflowDocker",
@@ -32,6 +32,10 @@
                 {
                     "name": "SNOWFLAKE_QBIZ_PASSWORD",
                     "valueFrom": "arn:aws:secretsmanager:us-west-2:907770664110:secret:snowflake-account-admin-credentials-jef2ZM:password::"
+                },
+                {
+                    "name": "GCP_SANDBOX_SA",
+                    "valueFrom": "arn:aws:secretsmanager:us-west-2:907770664110:secret:sandbox_data_pipeline-l5yMVK:sa_sandbox_gcp::"
                 }
             ],
             "ulimits": [],
@@ -52,7 +56,7 @@
     "taskRoleArn": "arn:aws:iam::907770664110:role/demo-app-task-execution-role",
     "executionRoleArn": "arn:aws:iam::907770664110:role/demo-app-task-execution-role",
     "networkMode": "awsvpc",
-    "revision": 3,
+    "revision": 4,
     "volumes": [],
     "status": "ACTIVE",
     "requiresAttributes": [
@@ -101,7 +105,7 @@
         "cpuArchitecture": "X86_64",
         "operatingSystemFamily": "LINUX"
     },
-    "registeredAt": "2024-03-15T21:15:38.505Z",
+    "registeredAt": "2024-03-22T18:33:31.500Z",
     "registeredBy": "arn:aws:iam::907770664110:user/andres",
     "tags": []
 }
