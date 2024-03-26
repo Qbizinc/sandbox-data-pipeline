@@ -1,0 +1,46 @@
+# This workflow will build and push a new container image to Amazon ECR,
+# and then will update the current cluster/service on Amazon ECS
+name: Deploy Airflow to Amazon ECS on pushes to "main" branch
+
+on:
+  push:
+    branches: ["main"]
+env:
+  AWS_REGION: us-west-2
+  ECR_REPOSITORY: airflowdeployement
+  ECS_SERVICE: cc-demo-app-service
+  ECS_CLUSTER: demo-app-cluster
+  ECS_TASK_DEFINITION: docker/script/task_definition_ecs.json # Path of new task definition file created by this workflow
+  #CONTAINER_NAME: AirflowDocker
+permissions:
+  contents: read # This is required for actions/checkout
+  id-token: write # This is required for requesting the JWT
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::907770664110:role/GIT_ACTION_ROLE_SANDBOX_DATA_PIPELINE
+          role-session-name: sandbox-data-pipeline
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Build, tag, and push image to Amazon ECR & update ECS service
+        id: build-image-update-ecs-service
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: latest
+        run: |
+          # Build a docker container and
+          # push it to ECR so that it can
+          # be deployed to ECS.
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -f docker/Dockerfile-airflow-282 .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE
