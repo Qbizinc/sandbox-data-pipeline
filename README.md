@@ -14,8 +14,6 @@ To run the container
 docker run -it -p 8080:8080 qbiz/airflow:v2.8.2 bash -c "/start.sh"
 ```
 
-The file sandbox-data-pipeline-bigquery.json is necessary to create GCP connection to Qbiz project
-
 ## Overview
 
 Note: for instructions on setting up Airflow on EC2, see [this wiki page](https://qbiz-wiki.com/en/technology/airflow/airflow_on_ec2).
