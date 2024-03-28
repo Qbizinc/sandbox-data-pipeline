@@ -208,6 +208,7 @@ def anomalo_to_datahub(api_client: anomalo.Client, start_date: str, end_date: st
         end_date: End date of Anomalo check interval to be inserted into Datahub (in "%Y-%m-%d" format)
     '''
     # Please replace all variables below with those unique to your instance
+    # TODO: Retrieve below IP address using AWS Secrets Manager
     gms_server = 'http://34.210.197.39:8080' # your gms server
     # anomalo_url = "https://CUSTOMER.ANOMALO.COM/dashboard/tables/"
     anomalo_url = "https://app.anomalo.com/dashboard/home/search"
@@ -240,24 +241,25 @@ def anomalo_to_datahub(api_client: anomalo.Client, start_date: str, end_date: st
     for configured_table in configured_tables:
         anomalo_table_name = configured_table['table']['full_name']
         anomalo_warehouse_id = configured_table['table']['warehouse_id']
-        database_name = warehouse_mapping[anomalo_warehouse_id]
-        tbl = f"{database_name}.{anomalo_table_name}"
+        anomalo_warehouse_name = warehouse_mapping[anomalo_warehouse_id]
+        tbl = f"{anomalo_warehouse_name}.{anomalo_table_name}"
         
         try:
-            database_name = warehouse_mapping[anomalo_warehouse_id]
+            anomalo_warehouse_name = warehouse_mapping[anomalo_warehouse_id]
             print("Pushing results to " + tbl)
         except Exception as e:
             print("Error: WH " + str(anomalo_warehouse_id) + " DNE. Skipping " + anomalo_table_name)
             continue
-        
-        tbl = f"{database_name}.{anomalo_table_name}"
 
         # Below dhtbl variable must equal the fully qualified table path you see in Datahub's table navigation on top
         # For example, everything after /browse/dataset/prod/DW_NAME
-        #TODO: See if below link needs to change based on warehouse
-        dhtbl = "dbc-895f1218-7031.anomalo_unity.main." + anomalo_table_name
-        
-        table_id = api_client.get_table_information(table_name=anomalo_table_name, warehouse_id=anomalo_warehouse_id)['id']
+        # NOTE: Not all datasets will show up when using above method ^ instead browse by platform until the table with a link to the platform is found
+        # The missing piece is the "database" part of full table path (or "project" in BigQuery); the anomalo_table_name will have the schema + table name
+        database_mapping = {'qbiz-snowflake-sandbox-pipeline': 'SANDBOX_DATA_PIPELINE', 'qbiz-bigquery-sandbox-pipeline': 'sandbox-data-pipeline'}
+        database = database_mapping[anomalo_warehouse_name]
+        dhtbl = f"{database}.{anomalo_table_name}"
+
+        table_id = configured_table['table']['id']
         # Get job id of most recent check run within specified interval
         latest_job_id = api_client.get_check_intervals(table_id=table_id, start=start_date, end=end_date)[0]["latest_run_checks_job_id"]
         results = api_client.get_run_result(job_id=latest_job_id)
@@ -274,8 +276,9 @@ def anomalo_to_datahub(api_client: anomalo.Client, start_date: str, end_date: st
         )
 
         # Set platform and assertion_dataPlatformInstance values based on the platform mappings below
+        # TODO: See if mapping below can be grabbed from https://app.anomalo.com/api/public/v1/list_warehouses
         platform_mapping = {'Snowflake': 'snowflake', 'qbiz-snowflake-sandbox-pipeline': 'snowflake', 'qbiz-bigquery-sbx-pipeline': 'bigquery', 'qbiz-bigquery-sandbox-pipeline': 'bigquery'}
-        platform = platform_mapping[database_name]
+        platform = platform_mapping[anomalo_warehouse_name]
         assertion_dataPlatformInstance = assertion_dataPlatformInstances[platform]
 
         # Below adds link back to Anomalo's table homepage in Datahub's Documentation section
